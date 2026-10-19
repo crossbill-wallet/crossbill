@@ -1,0 +1,16 @@
+{
+  "name": "shrike-native",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native pieces of Shrike for iPhone: embedded Tor for RPC, Keychain storage behind Face ID, QR scanning, and a privacy cover in the app switcher.",
+  "license": "Apache-2.0",
+  "files": ["ios/", "ShrikeNative.podspec"],
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    }
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^8.0.0"
+  }
+}

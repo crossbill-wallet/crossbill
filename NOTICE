@@ -1,0 +1,40 @@
+Shrike for iPhone
+Copyright 2026 the Shrike for iPhone authors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This app is an iPhone reimplementation, in TypeScript and Swift, of parts of Shrike
+(https://github.com/privkeyio/shrike, https://shrikewallet.com), an unofficial fork of Sparrow Wallet
+(https://github.com/sparrowwallet/sparrow) that follows the BLAKE2b proof-of-work fork. Shrike and Sparrow
+are licensed under the Apache License, Version 2.0.
+
+Parts of this app are ported from Shrike and its drongo library (https://github.com/privkeyio/drongo) and
+were rewritten in TypeScript for this app, which changes them from the originals:
+
+  src/core/replay.ts     the replay protection decision (AppServices.chainDecision and heightDecision)
+  src/core/sighash.ts    the unified opt-in signature hash
+  src/core/sign.ts       signing rules, including drongo's low-R signature grinding
+  src/core/txbuilder.ts  coin selection and change, modeled on Sparrow's
+  src/core/sync.ts       compatibility with Sparrow's Cormorant watch-only wallet on Bitcoin Core/Knots
+  src/core/explorer.ts   block explorer links, as Shrike builds them
+
+The bird artwork in public/bird.png and resources/ is Shrike's application icon. The Apache License does
+not grant permission to use the names "Shrike" or "Sparrow", or their logos, as the name or brand of
+another product (section 6). Replace them before publishing a version of your own.
+
+Third-party components built into the app, each under its own license:
+
+  Tor (The Tor Project)                            BSD 3-Clause
+  Tor.framework (the iCepa contributors), which    MIT
+    also builds in OpenSSL                         Apache 2.0
+    libevent                                       BSD 3-Clause
+    liblzma (xz)                                   0BSD / public domain
+  Capacitor and its plugins (Ionic)                MIT
+  React (Meta)                                     MIT
+  @noble/curves, @noble/hashes, @scure/bip32,
+    @scure/bip39, @scure/base (Paul Miller)        MIT
+  qrcode (Ryan Day)                                MIT
+  Atkinson Hyperlegible Next and Mono fonts
+    (Braille Institute)                            SIL Open Font License 1.1
+
+Build and test tools (TypeScript, Vite, Vitest) are not shipped in the app.

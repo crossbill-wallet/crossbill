@@ -1,0 +1,305 @@
+import { createContext, Fragment, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
+import QRCode from 'qrcode';
+import { app, type AppModel } from '../app/model';
+import { isNative, ShrikeNative } from '../app/native';
+import { DECISION_TEXT, decisionSummary, isOptedIn, type ReplayDecision } from '../core/replay';
+import { formatAmount, unitLabel, type Unit } from '../core/units';
+
+// ------------------------------------------------------------------ app state
+
+export function useApp(): AppModel {
+  useSyncExternalStore(
+    (cb) => app.subscribe(cb),
+    () => app.version,
+  );
+  return app;
+}
+
+/**
+ * True once a screenshot is taken while `active` (a screen showing seed words is up). iOS can't prevent the
+ * screenshot, so the screen says what to do about it instead.
+ */
+export function useScreenshotAlert(active: boolean): boolean {
+  const [taken, setTaken] = useState(false);
+  useEffect(() => {
+    if (!active || !isNative) return;
+    let handle: { remove: () => Promise<void> } | undefined;
+    let gone = false;
+    void ShrikeNative.addListener('screenshot', () => setTaken(true)).then((h) => {
+      if (gone) void h.remove();
+      else handle = h;
+    });
+    return () => {
+      gone = true;
+      void handle?.remove();
+    };
+  }, [active]);
+  return taken;
+}
+
+export function ScreenshotWarning() {
+  return (
+    <div className="banner error" role="alert">
+      That screenshot holds your seed words, and anyone who sees it can take the coins. Delete it from Photos, then from Recently Deleted. Paper is the only safe copy.
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ navigation
+
+export type Route =
+  | { name: 'home' }
+  | { name: 'receive' }
+  | { name: 'send'; address?: string; amount?: number; label?: string; coins?: string[] }
+  | { name: 'tx'; txid: string }
+  | { name: 'bump'; txid: string; cancel?: boolean }
+  | { name: 'settings' }
+  | { name: 'node' }
+  | { name: 'add-wallet'; seedFrom?: string }
+  | { name: 'wallet-info'; id: string };
+
+interface Nav {
+  stack: Route[];
+  push: (r: Route) => void;
+  pop: () => void;
+  reset: (r?: Route) => void;
+}
+
+const NavContext = createContext<Nav | null>(null);
+
+export function NavProvider({ children }: { children: ReactNode }) {
+  const [stack, setStack] = useState<Route[]>([{ name: 'home' }]);
+  const nav = useMemo<Nav>(
+    () => ({
+      stack,
+      push: (r) => setStack((s) => [...s, r]),
+      pop: () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s)),
+      reset: (r) => setStack([r ?? { name: 'home' }]),
+    }),
+    [stack],
+  );
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [stack.length]);
+  return <NavContext.Provider value={nav}>{children}</NavContext.Provider>;
+}
+
+export function useNav(): Nav {
+  const n = useContext(NavContext);
+  if (!n) throw new Error('No navigation');
+  return n;
+}
+
+// ------------------------------------------------------------------ frame
+
+export function Bar({ title, back = true, end }: { title: string; back?: boolean; end?: ReactNode }) {
+  const nav = useNav();
+  return (
+    <header className="bar">
+      <div className="side">
+        {back && (
+          <button onClick={nav.pop} aria-label="Back">
+            <Chevron /> Back
+          </button>
+        )}
+      </div>
+      <h1>{title}</h1>
+      <div className="side end">{end}</div>
+    </header>
+  );
+}
+
+export function Screen({ title, back, end, children }: { title: string; back?: boolean; end?: ReactNode; children: ReactNode }) {
+  return (
+    <div className="screen">
+      <Bar title={title} back={back} end={end} />
+      <main className="body">{children}</main>
+    </div>
+  );
+}
+
+export function Chevron({ dir = 'left' }: { dir?: 'left' | 'down' | 'right' }) {
+  const rot = dir === 'left' ? 0 : dir === 'down' ? -90 : 180;
+  return (
+    <svg width="11" height="18" viewBox="0 0 11 18" aria-hidden style={{ transform: `rotate(${rot}deg)`, verticalAlign: '-3px' }}>
+      <path d="M9.5 1.5 2 9l7.5 7.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Eight even teeth on a 24 grid, drawn from geometry (tip radius 10.3, root 8.1) so it stays symmetric. */
+const GEAR_PATH =
+  'M9.84 4.19L10.12 1.87A10.3 10.3 0 0 1 13.88 1.87L14.16 4.19A8.1 8.1 0 0 1 15.99 4.95L17.83 3.51A10.3 10.3 0 0 1 20.49 6.17L19.05 8.01A8.1 8.1 0 0 1 19.81 9.84L22.13 10.12A10.3 10.3 0 0 1 22.13 13.88L19.81 14.16A8.1 8.1 0 0 1 19.05 15.99L20.49 17.83A10.3 10.3 0 0 1 17.83 20.49L15.99 19.05A8.1 8.1 0 0 1 14.16 19.81L13.88 22.13A10.3 10.3 0 0 1 10.12 22.13L9.84 19.81A8.1 8.1 0 0 1 8.01 19.05L6.17 20.49A10.3 10.3 0 0 1 3.51 17.83L4.95 15.99A8.1 8.1 0 0 1 4.19 14.16L1.87 13.88A10.3 10.3 0 0 1 1.87 10.12L4.19 9.84A8.1 8.1 0 0 1 4.95 8.01L3.51 6.17A10.3 10.3 0 0 1 6.17 3.51L8.01 4.95A8.1 8.1 0 0 1 9.84 4.19Z';
+
+export function GearIcon({ size = 26 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+      <path fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" d={GEAR_PATH} />
+      <circle cx="12" cy="12" r="3.3" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+// ------------------------------------------------------------------ text
+
+/** Addresses in groups of four, alternating tone, so they can be checked a group at a time. */
+export function Address({ value, size }: { value: string; size?: 'sm' | 'lg' }) {
+  const chunks = value.match(/.{1,4}/g) ?? [];
+  return (
+    <span className="addr" style={size === 'sm' ? { fontSize: 'var(--t-sm)' } : size === 'lg' ? { fontSize: 'var(--t-lg)' } : undefined}>
+      {chunks.map((c, i) => (
+        <Fragment key={i}>
+          <span className="chunk">{c}</span>
+          {i < chunks.length - 1 ? ' ' : ''}
+        </Fragment>
+      ))}
+    </span>
+  );
+}
+
+export function shortAddress(a: string): string {
+  return a.length > 18 ? `${a.slice(0, 8)}…${a.slice(-6)}` : a;
+}
+
+export function Amount({ sats, unit, sign }: { sats: number; unit: Unit; sign?: boolean }) {
+  return (
+    <span className="mono">
+      {formatAmount(sats, unit, { sign })} <span style={{ fontFamily: 'var(--sans)', color: 'var(--slate)', fontSize: '0.8em' }}>{unitLabel(unit)}</span>
+    </span>
+  );
+}
+
+export function timeAgo(unix: number): string {
+  const d = new Date(unix * 1000);
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) + ', ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+// ------------------------------------------------------------------ replay status
+
+export function EyeMark({ on }: { on: boolean }) {
+  return on ? (
+    <svg className="mark" viewBox="0 0 22 22" aria-hidden>
+      <path d="M2 11 11 4l9 7-9 7z" fill="var(--eye)" />
+      <path d="M7 11.2 10 14l5-6" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ) : (
+    <svg className="mark" viewBox="0 0 22 22" aria-hidden>
+      <path d="M11 2 21 20H1z" fill="var(--ember)" />
+      <path d="M11 8v6" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" />
+      <circle cx="11" cy="17" r="1.3" fill="#fff" />
+    </svg>
+  );
+}
+
+export function ReplayStatus({ decision, compact }: { decision: ReplayDecision; compact?: boolean }) {
+  const on = isOptedIn(decision);
+  const t = DECISION_TEXT[decision];
+  return (
+    <div className={`replay ${on ? 'on' : 'off'}`} role="status">
+      <EyeMark on={on} />
+      <div>
+        <div className="state">{decisionSummary(decision)}</div>
+        {!compact && (
+          <div className="why">
+            {on
+              ? (t.caveat ?? 'This wallet signs with the unified signature hash, so what it sends can’t be replayed on the SHA256d chain.')
+              : `${t.reason ?? ''} The signature is valid on both chains, so where these coins also exist on the SHA256d chain it can be replayed there.${t.remedy ? ` ${t.remedy}` : ''}`}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ inputs
+
+export function Field({ label, hint, error, children, htmlFor }: { label: string; hint?: ReactNode; error?: string | null; children: ReactNode; htmlFor?: string }) {
+  return (
+    <div className="field">
+      <label htmlFor={htmlFor}>{label}</label>
+      {children}
+      {error ? <div className="error">{error}</div> : hint ? <div className="hint">{hint}</div> : null}
+    </div>
+  );
+}
+
+export function Choice({ checked, onSelect, title, detail }: { checked: boolean; onSelect: () => void; title: string; detail?: ReactNode }) {
+  return (
+    <button type="button" className="choice" role="radio" aria-checked={checked} onClick={onSelect}>
+      <span className="dot" />
+      <span>
+        <span className="what">{title}</span>
+        {detail && <div className="why">{detail}</div>}
+      </span>
+    </button>
+  );
+}
+
+export function Toggle({ label, detail, checked, onChange }: { label: string; detail?: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="toggle">
+      <span>
+        <span style={{ fontWeight: 700 }}>{label}</span>
+        {detail && <div className="why">{detail}</div>}
+      </span>
+      <input type="checkbox" role="switch" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+    </label>
+  );
+}
+
+export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div className="scrim" onClick={onClose}>
+      <div className="sheet" role="dialog" aria-label={title} onClick={(e) => e.stopPropagation()}>
+        <div className="grip" />
+        <h2>{title}</h2>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+export function Qr({ text }: { text: string }) {
+  const [svg, setSvg] = useState('');
+  useEffect(() => {
+    let alive = true;
+    QRCode.toString(text, { type: 'svg', margin: 0, errorCorrectionLevel: 'M' }).then((s) => alive && setSvg(s));
+    return () => {
+      alive = false;
+    };
+  }, [text]);
+  return <div className="qr" dangerouslySetInnerHTML={{ __html: svg }} aria-label="QR code" role="img" />;
+}
+
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Parses a bitcoin: URI (BIP21) or a bare address. */
+export function parsePaymentText(raw: string): { address: string; amount?: number; label?: string } {
+  const s = raw.trim();
+  if (!/^bitcoin:/i.test(s)) return { address: s };
+  const [head, query] = s.slice(8).split('?');
+  const out: { address: string; amount?: number; label?: string } = { address: head };
+  if (query) {
+    const p = new URLSearchParams(query);
+    const amt = p.get('amount');
+    if (amt && /^\d+(\.\d{1,8})?$/.test(amt)) {
+      const [w, f = ''] = amt.split('.');
+      out.amount = Number(w) * 100_000_000 + Number(f.padEnd(8, '0'));
+    }
+    const label = p.get('label') ?? p.get('message');
+    if (label) out.label = label;
+  }
+  return out;
+}

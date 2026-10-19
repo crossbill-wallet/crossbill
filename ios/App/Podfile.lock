@@ -1,0 +1,67 @@
+PODS:
+  - Capacitor (8.5.2):
+    - CapacitorCordova
+  - CapacitorApp (8.1.2):
+    - Capacitor
+  - CapacitorCordova (8.5.2)
+  - CapacitorFilesystem (8.1.4):
+    - Capacitor
+    - IONFilesystemLib (~> 2.0.0)
+  - CapacitorShare (8.0.3):
+    - Capacitor
+  - CapacitorStatusBar (8.0.4):
+    - Capacitor
+  - IONFilesystemLib (2.0.1)
+  - ShrikeNative (0.1.0):
+    - Capacitor
+    - Tor (~> 409.14)
+  - Tor (409.14.1):
+    - Tor/CTor (= 409.14.1)
+  - Tor/Core (409.14.1)
+  - Tor/CTor (409.14.1):
+    - Tor/Core
+
+DEPENDENCIES:
+  - "Capacitor (from `../../node_modules/@capacitor/ios`)"
+  - "CapacitorApp (from `../../node_modules/@capacitor/app`)"
+  - "CapacitorCordova (from `../../node_modules/@capacitor/ios`)"
+  - "CapacitorFilesystem (from `../../node_modules/@capacitor/filesystem`)"
+  - "CapacitorShare (from `../../node_modules/@capacitor/share`)"
+  - "CapacitorStatusBar (from `../../node_modules/@capacitor/status-bar`)"
+  - ShrikeNative (from `../../plugins/shrike-native`)
+
+SPEC REPOS:
+  trunk:
+    - IONFilesystemLib
+    - Tor
+
+EXTERNAL SOURCES:
+  Capacitor:
+    :path: "../../node_modules/@capacitor/ios"
+  CapacitorApp:
+    :path: "../../node_modules/@capacitor/app"
+  CapacitorCordova:
+    :path: "../../node_modules/@capacitor/ios"
+  CapacitorFilesystem:
+    :path: "../../node_modules/@capacitor/filesystem"
+  CapacitorShare:
+    :path: "../../node_modules/@capacitor/share"
+  CapacitorStatusBar:
+    :path: "../../node_modules/@capacitor/status-bar"
+  ShrikeNative:
+    :path: "../../plugins/shrike-native"
+
+SPEC CHECKSUMS:
+  Capacitor: 89067779e14fb7ea56af07b4817f45d1f0c2a269
+  CapacitorApp: 7b7e43debe505bc61beedb83796aa1368c86078b
+  CapacitorCordova: 5bec5648cbd09a176ce34ce5e7b6cdabb2c8a327
+  CapacitorFilesystem: 17ee1862a45ef2e5012311a87e18de1d45a6811b
+  CapacitorShare: 5b5e53347556bee89ae6163ed20b5b3c25fe75f1
+  CapacitorStatusBar: ff844df1f126da6c4fbc4028272425fa3a91e7e3
+  IONFilesystemLib: 306469e4c563f61de82d7bca2bbfed9e64d1b2d2
+  ShrikeNative: 98d8291504f9c493fb354bd36131b465a8d57746
+  Tor: 885bab50ebad5e6580f7b05b0df623aebfc598cb
+
+PODFILE CHECKSUM: 0abbb411d3c1d2b3f2acf234b0a4f845e5aa4dcd
+
+COCOAPODS: 1.17.0
