@@ -1684,3 +1684,185 @@ body.has-tabbar .body {
 .row .title .pill {
   flex: none;
 }
+
+/* ------------------------------------------------------------ reconnecting to the price */
+
+.price-card .price.stale {
+  opacity: 0.45;
+}
+
+.price-card .price.empty {
+  font-family: var(--sans);
+  font-size: var(--t-xl);
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--slate);
+  padding: 6px 0 4px;
+}
+
+.conn-panel {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--field);
+}
+
+.conn-panel.failed {
+  border-color: var(--ember);
+  background: var(--ember-wash);
+}
+
+.conn-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.conn-panel.failed .conn-head strong {
+  color: var(--ember);
+}
+
+.conn-head .spinner,
+.step-mark.spinner {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2.5px solid var(--rule);
+  border-top-color: var(--eye);
+  animation: spin 0.9s linear infinite;
+}
+
+.step-mark.spinner {
+  width: 16px;
+  height: 16px;
+  margin: 2px;
+}
+
+.conn-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.conn-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: var(--t-sm);
+  color: var(--slate);
+}
+
+.conn-steps li.active,
+.conn-steps li.done,
+.conn-steps li.failed {
+  color: var(--ink);
+}
+
+.conn-steps li.active .label {
+  font-weight: 700;
+}
+
+.conn-steps .step-note {
+  display: block;
+  font-size: var(--t-xs);
+  color: var(--slate);
+}
+
+.conn-steps li.failed .step-note {
+  color: var(--ember);
+}
+
+svg.step-mark {
+  flex: none;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+svg.step-mark.pending circle {
+  stroke: var(--rule);
+}
+
+svg.step-mark.done circle {
+  fill: var(--eye);
+  stroke: var(--eye);
+}
+
+svg.step-mark.done path {
+  stroke: var(--paper);
+}
+
+svg.step-mark.failed circle {
+  fill: var(--ember);
+  stroke: var(--ember);
+}
+
+svg.step-mark.failed path {
+  stroke: var(--paper);
+}
+
+.conn-detail {
+  margin: 14px 0 12px;
+  font-size: var(--t-sm);
+  color: var(--ink);
+}
+
+.conn-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.conn-retry,
+.conn-note {
+  margin: 10px 0 0;
+  font-size: var(--t-xs);
+  color: var(--slate);
+}
+
+.conn-tech {
+  margin-top: 10px;
+  font-size: var(--t-xs);
+  color: var(--slate);
+}
+
+.conn-tech summary {
+  cursor: pointer;
+}
+
+.conn-tech .mono {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.price-skeleton {
+  display: block;
+  width: 62%;
+  height: 0.8em;
+  margin: 0.15em 0;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--field) 0%, var(--rule) 50%, var(--field) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.price-card .price.empty:has(.price-skeleton) {
+  font-family: var(--mono);
+  font-size: var(--t-xxl);
+  padding: 0;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}

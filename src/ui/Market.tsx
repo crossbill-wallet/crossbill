@@ -21,17 +21,24 @@ export function Market() {
 
   useEffect(() => {
     if (!app.settings.prices) return;
+    const unwatch = app.watchPrice();
     void app.loadPrice(true);
-    const poll = setInterval(() => void app.loadPrice(true), 60_000);
+    // A quiet refresh each minute. After a failure the reconnect panel runs its own retries instead
+    const poll = setInterval(() => {
+      if (!app.price.problem) void app.loadPrice(true);
+    }, 60_000);
     // Keeps "updated ... ago" honest between answers
     const clock = setInterval(() => tick((x) => x + 1), 15_000);
     return () => {
+      unwatch();
       clearInterval(poll);
       clearInterval(clock);
     };
   }, [app, app.settings.prices]);
 
   const held = app.totalConfirmed();
+  const p = app.price;
+  const stale = p.problem != null && !p.loading;
 
   return (
     <Screen title="Market" back={false}>
@@ -44,11 +51,13 @@ export function Market() {
         </div>
       ) : (
         <>
-          <div className="price-card" aria-live="polite">
+          <div className="price-card">
             <div className="pair">
               XBT <span>/ USDC</span>
             </div>
-            <div className="price">{t ? formatPrice(t.last) : app.price.error ? 'Unavailable' : '...'}</div>
+            <div className={`price${stale ? ' stale' : ''}${!t ? ' empty' : ''}`}>
+              {t ? formatPrice(t.last) : p.problem && !p.loading ? 'No price yet' : <span className="price-skeleton" aria-label="Getting the price" />}
+            </div>
             <div className="change">
               {t && t.changePercent != null ? (
                 <>
@@ -65,18 +74,12 @@ export function Market() {
               )}
             </div>
             <div className="source">
-              Neoxa Exchange{app.settings.pricesOverTor ? ', through Tor' : ''}
-              {app.price.at ? `, updated ${ago(app.price.at)}` : ''}
-              {app.price.loading ? <span className="spinner small" aria-label="Updating" /> : null}
+              {stale && t
+                ? `Last price from Neoxa Exchange, ${ago(p.at)}`
+                : `Neoxa Exchange${p.viaTor ? ', through Tor' : app.settings.pricesOverTor && p.at ? ', without Tor this time' : app.settings.pricesOverTor ? ', through Tor' : ''}${p.at ? `, updated ${ago(p.at)}` : ''}`}
+              {p.loading && !p.showSteps ? <span className="spinner small" aria-label="Updating" /> : null}
             </div>
-            {app.price.error && (
-              <div className="banner error" style={{ margin: '12px 0 0' }}>
-                {app.price.error}{' '}
-                <button className="btn quiet" style={{ color: 'inherit', padding: 0, minHeight: 0 }} onClick={() => void app.loadPrice(true)}>
-                  Try again
-                </button>
-              </div>
-            )}
+            <PriceConnection />
           </div>
 
           <PriceChart />
@@ -151,6 +154,106 @@ export function Market() {
   );
 }
 
+/**
+ * How getting the price is going, step by step, while reconnecting and after a failure: each step ticks off,
+ * spins, or shows what went wrong, and a failed load says what to do and tries again by itself.
+ */
+function PriceConnection() {
+  const app = useApp();
+  const p = app.price;
+  const failed = !p.loading && p.problem != null;
+  const autoRetry = failed && p.problem!.kind !== 'tor-stuck';
+  const [retryAt, setRetryAt] = useState<number | null>(null);
+  const [, setNow] = useState(0);
+
+  // After a failure, try again by itself: 15 seconds, then 30, 60, and every two minutes
+  useEffect(() => {
+    if (!autoRetry) {
+      setRetryAt(null);
+      return;
+    }
+    const delay = Math.min(120, 15 * 2 ** Math.max(0, p.failures - 1)) * 1000;
+    setRetryAt(Date.now() + delay);
+    const t = setTimeout(() => void app.loadPrice(true, { show: true }), delay);
+    return () => clearTimeout(t);
+  }, [autoRetry, p.failures, app]);
+
+  useEffect(() => {
+    if (retryAt == null) return;
+    const t = setInterval(() => setNow((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, [retryAt]);
+
+  if (!p.showSteps || !p.steps) return null;
+  const done = !p.loading && !failed;
+  const title = failed ? p.problem!.title : done ? 'Connected' : p.attempt > 1 ? `Trying again, ${p.attempt} of 3` : p.ticker ? 'Reconnecting' : 'Connecting';
+  const left = retryAt != null ? Math.max(0, Math.ceil((retryAt - Date.now()) / 1000)) : null;
+
+  return (
+    <div className={`conn-panel${failed ? ' failed' : ''}`} role="status" aria-live="polite">
+      <div className="conn-head">
+        {failed ? <StepMark status="failed" /> : done ? <StepMark status="done" /> : <span className="spinner" aria-hidden />}
+        <strong>{title}</strong>
+      </div>
+      <ol className="conn-steps">
+        {p.steps.map((s) => (
+          <li key={s.id} className={s.status}>
+            <StepMark status={s.status} />
+            <span>
+              <span className="label">{s.label}</span>
+              {s.note && <span className="step-note">{s.note}</span>}
+            </span>
+          </li>
+        ))}
+      </ol>
+      {failed && (
+        <>
+          <p className="conn-detail">{p.problem!.detail}</p>
+          <div className="conn-actions">
+            <button className="btn primary" onClick={() => void app.loadPrice(true, { show: true })}>
+              Try again now
+            </button>
+            {p.problem!.canGoDirect && (
+              <button className="btn secondary" onClick={() => void app.loadPrice(true, { show: true, direct: true })}>
+                Get it once without Tor
+              </button>
+            )}
+          </div>
+          {left != null && <p className="conn-retry">Trying again by itself in {left < 60 ? `${left} s` : `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`}</p>}
+          {p.problem!.canGoDirect && <p className="conn-note">Without Tor, the exchange sees this iPhone’s IP address for that one request. It asks for the price only, never for anything about your wallets.</p>}
+          {p.problem!.technical && (
+            <details className="conn-tech">
+              <summary>Technical details</summary>
+              <span className="mono">{p.problem!.technical}</span>
+            </details>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function StepMark({ status }: { status: 'pending' | 'active' | 'done' | 'failed' }) {
+  if (status === 'active') return <span className="step-mark spinner" aria-label="Working" />;
+  return (
+    <svg className={`step-mark ${status}`} width="20" height="20" viewBox="0 0 20 20" aria-label={status === 'done' ? 'Done' : status === 'failed' ? 'Failed' : 'Waiting'}>
+      {status === 'done' && (
+        <>
+          <circle cx="10" cy="10" r="9" />
+          <path d="M5.8 10.3 8.6 13l5.6-6" />
+        </>
+      )}
+      {status === 'failed' && (
+        <>
+          <circle cx="10" cy="10" r="9" />
+          <path d="M7 7l6 6M13 7l-6 6" />
+        </>
+      )}
+      {status === 'pending' && <circle cx="10" cy="10" r="8" />}
+    </svg>
+  );
+}
+
 /** Closing prices over a chosen range, drawn as one line. Touch and drag to read a point. */
 function PriceChart() {
   const app = useApp();
@@ -160,6 +263,10 @@ function PriceChart() {
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+
+  // A chart that failed or never loaded tries again whenever a new price arrives, since that means the
+  // connection is back
+  const retryKey = error != null || candles == null ? app.price.at : 0;
 
   useEffect(() => {
     let alive = true;
@@ -184,7 +291,8 @@ function PriceChart() {
     return () => {
       alive = false;
     };
-  }, [range, r.interval, r.limit, app]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range, r.interval, r.limit, app, retryKey]);
 
   const W = 320;
   const H = 150;
@@ -255,7 +363,15 @@ function PriceChart() {
             )}
           </svg>
         ) : (
-          <div className="chart-empty">{error ?? (candles && candles.length < 2 ? 'Not enough trades yet to draw this range' : '')}</div>
+          <div className="chart-empty">
+            {error
+              ? app.price.problem
+                ? 'The chart comes back with the connection.'
+                : 'Couldn’t load the price history.'
+              : candles && candles.length < 2
+                ? 'Not enough trades yet to draw this range'
+                : ''}
+          </div>
         )}
         {geo && (
           <>

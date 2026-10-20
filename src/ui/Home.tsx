@@ -30,16 +30,20 @@ export function Home() {
   // The dollar figure keeps to a price under a minute old while it's showing
   useEffect(() => {
     if (!usd) return;
+    const unwatch = app.watchPrice();
     void app.loadPrice();
     const t = setInterval(() => void app.loadPrice(), 60_000);
-    return () => clearInterval(t);
+    return () => {
+      unwatch();
+      clearInterval(t);
+    };
   }, [usd, app]);
 
   const bal = snap?.balance ?? { confirmed: 0, unconfirmed: 0, immature: 0 };
   const sub: string[] = [];
   if (usd) {
     if (ticker) sub.push(`At ${formatPrice(ticker.last)} per XBT${app.settings.network !== 'mainnet' ? ', the mainnet price' : ''}`);
-    else sub.push(app.price.error ? 'Price unavailable. Tap to show coins' : 'Getting the XBT price');
+    else sub.push(app.price.loading ? 'Getting the XBT price' : app.price.error ? 'Price unavailable, see Market. Tap to show coins' : 'Getting the XBT price');
     if (ticker && bal.unconfirmed) sub.push(`${bal.unconfirmed > 0 ? '+' : '-'}${formatUsd(Math.abs(bal.unconfirmed), ticker.last)} unconfirmed`);
   } else {
     if (bal.unconfirmed) sub.push(`${formatAmount(bal.unconfirmed, unit, { sign: true })} ${unitLabel(unit)} unconfirmed`);

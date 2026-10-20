@@ -82,7 +82,7 @@ If the app doesn't find your wallet on the node, check the derivation in Shrike 
 | Light and dark, skins, fonts | `src/app/look.ts`, `src/ui/styles.css` |
 | Community links, donation address | `src/app/links.ts` |
 | App model and screens | `src/app`, `src/ui` |
-| Native: Tor, Keychain, Face ID, QR scanner | `plugins/shrike-native/ios/Sources` |
+| Native: Tor, Keychain, Face ID, QR scanner | `plugins/shrike-native/ios/Sources` (`TorService.swift` also reopens Tor's local port when iOS takes it back) |
 
 ## Tests
 
@@ -93,13 +93,15 @@ npm test
 - `tests/core-vectors.test.ts` checks keys, descriptors, addresses and 64 fully signed transactions byte for byte against output from Shrike's own Java library (drongo), for all four address types, with and without the unified signature hash and a passphrase. It also runs the 166 reference vectors for the unified signature hash that ship with drongo.
 - `tests/core-logic.test.ts` covers coin selection, fees, the replay decision, v2 headers, addresses, labels and the signature readback.
 - `tests/features.test.ts` checks the two-factor codes against the RFC 6238 and RFC 4226 test vectors, recovery codes, reading Neoxa's price data, and the skin thresholds.
+- `tests/twofactor-model.test.ts` covers the two-factor checks in the app model: codes used once, recovery codes, the lockout, and the Keychain deciding whether two-factor is on.
+- `tests/price-flow.test.ts` covers getting the price after iOS took back Tor's port, retries on new routes, a stuck Tor, going without Tor once, and resending a request the dead port refused.
 - `tests/regtest.e2e.test.ts` runs the whole core against a real Bitcoin Knots `v29.4.1.knots20260508` node in regtest, with the fork activating at height 20: it checks the opt-in is declined before activation and taken after, that the node accepts sends from all four address types, that a forged `0x21` is refused, that fee bumping replaces the original, and that a spent coin is never offered again. Point it at a build of that Knots tag: `KNOTS_BIN=/path/to/knots/build/bin npm test`.
 
 `tools/vectorgen` holds the Java program that produced the reference vectors from Shrike's own library.
 
 ## Trying it in a browser
 
-`DEV_RPC_TARGET=http://127.0.0.1:18443 npm run dev` serves the app on your Mac against a local regtest node, with Tor off. The browser version keeps seed words in memory only and exists for testing screens; don't use it with real funds. Prices come straight from Neoxa Exchange there, or from `DEV_PRICE_TARGET` if set.
+`DEV_RPC_TARGET=http://127.0.0.1:18443 npm run dev` serves the app on your Mac against a local regtest node, with Tor off. The browser version keeps seed words in memory only and exists for testing screens; don't use it with real funds. Prices come straight from Neoxa Exchange there, or from `DEV_PRICE_TARGET` if set. To see the Market tab's reconnect steps without a phone, set `localStorage['shrike.devTor']` to `dead-port`, `no-route` or `stuck`, reload, and run `__shrike.torAvailable = true` in the console.
 
 ## What's next
 

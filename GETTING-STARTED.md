@@ -115,7 +115,8 @@ Right after the first wallet, the app offers two-factor: a 6-digit code from an 
 | "The node refused the RPC user name or password" | Make a new RPC user and enter it again. StartOS only shows a password once. |
 | "Couldn't reach your node" after a while | Tap the red banner, then Try Again. Check the node is running and the phone has a connection. |
 | "That code doesn't match" when turning on two-factor or sending | Set the iPhone's clock automatically (Settings, General, Date & Time), and the authenticator's device too. Codes change every 30 seconds; wait for a fresh one. |
-| The price says "Couldn't reach Neoxa Exchange through Tor" | Try again in a minute. If it keeps failing, turn off **Get the price through Tor** in Settings, which asks the exchange directly. |
+| The Market tab says "Couldn't reach Neoxa Exchange through Tor" | The app tries new routes by itself and shows each step. If it keeps failing, tap **Get it once without Tor**, or turn off **Get the price through Tor** in Settings. |
+| "Tor on this iPhone stopped responding" | Close Shrike (swipe it away in the app switcher) and open it again. |
 | The wallet isn't found on the node | This version supports the standard account 0 paths only: m/84'/0'/0', m/86'/0'/0', m/49'/0'/0' and m/44'/0'/0'. Check the derivation in desktop Shrike (the wallet's Settings, Keystore). |
 
 ## Making it your own

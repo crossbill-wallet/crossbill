@@ -17,6 +17,8 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "torStart", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "torStatus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "torRecover", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "torCheck", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "torRepair", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "httpRequest", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "vaultSet", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "vaultGet", returnType: CAPPluginReturnPromise),
@@ -36,6 +38,7 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
     public override func load() {
         NotificationCenter.default.addObserver(self, selector: #selector(appWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(appDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(appWillEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(userTookScreenshot), name: UIApplication.userDidTakeScreenshotNotification, object: nil)
     }
 
@@ -58,6 +61,18 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func torRecover(_ call: CAPPluginCall) {
         TorService.shared.recover { call.resolve() }
+    }
+
+    /// Whether Tor's controller answers, its SOCKS port takes connections, and it has a circuit.
+    @objc func torCheck(_ call: CAPPluginCall) {
+        TorService.shared.check { call.resolve($0) }
+    }
+
+    /// Reattaches the controller and reopens the SOCKS port if iOS took them back while the app was suspended.
+    @objc func torRepair(_ call: CAPPluginCall) {
+        let newCircuit = call.getBool("newCircuit") ?? false
+        let freshPort = call.getBool("freshPort") ?? false
+        TorService.shared.repair(newCircuit: newCircuit, freshPort: freshPort) { call.resolve($0) }
     }
 
     // MARK: HTTP
@@ -99,15 +114,33 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 // Keep the codes: "A TLS error caused the secure connection to fail" alone doesn't say which part
                 // of the handshake failed, and the stream code (-98xx) does
                 let ns = error as NSError
+                let streamCode = ns.userInfo["_kCFStreamErrorCodeKey"] as? Int
+                let streamDomain = ns.userInfo["_kCFStreamErrorDomainKey"] as? Int
                 var codes = "\(ns.code)"
-                if let stream = ns.userInfo["_kCFStreamErrorCodeKey"] as? Int { codes += ", \(stream)" }
-                call.reject("\(ns.localizedDescription) (\(codes))")
+                if let stream = streamCode { codes += ", \(stream)" }
+                call.reject("\(ns.localizedDescription) (\(codes))", ShrikeNativePlugin.errorKind(ns, streamDomain: streamDomain, streamCode: streamCode))
                 return
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let body = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
             call.resolve(["status": status, "body": body])
         }.resume()
+    }
+
+    /// A short name for what went wrong, passed to the page as the error's code. "refused" means the connection
+    /// to the proxy on this phone was refused (POSIX domain, ECONNREFUSED), so the request never left the phone.
+    static func errorKind(_ ns: NSError, streamDomain: Int?, streamCode: Int?) -> String {
+        guard ns.domain == NSURLErrorDomain else { return "network" }
+        switch ns.code {
+        case NSURLErrorTimedOut:
+            return "timeout"
+        case NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost, NSURLErrorDataNotAllowed:
+            return "offline"
+        case NSURLErrorCannotConnectToHost where streamDomain == 1 && streamCode == Int(ECONNREFUSED):
+            return "refused"
+        default:
+            return "network"
+        }
     }
 
     // MARK: Keychain
@@ -301,6 +334,10 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
             self.cover?.removeFromSuperview()
             self.cover = nil
         }
+    }
+
+    // Only on a real return from the background, not after a Face ID prompt, which also makes the app inactive
+    @objc private func appWillEnterForeground() {
         TorService.shared.foreground()
     }
 }

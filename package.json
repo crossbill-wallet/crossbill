@@ -1,7 +1,7 @@
 {
   "name": "shrike-mobile",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Personal iPhone build of the Shrike Bitcoin wallet (BLAKE2b fork, unified sighash), talking to your own Knots node over Tor.",
   "type": "module",
   "scripts": {

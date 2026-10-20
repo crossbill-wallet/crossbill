@@ -13,6 +13,38 @@ export interface TorStatus {
   error?: string;
 }
 
+/** What works in the embedded Tor right now. */
+export interface TorHealth {
+  state: TorState;
+  /** The control connection answers */
+  controller: boolean;
+  /** The local SOCKS port takes connections. iOS takes it back after a while in the background */
+  socks: boolean;
+  /** Tor has a circuit ready */
+  circuit: boolean;
+  port?: number;
+}
+
+export interface TorRepairResult {
+  ok: boolean;
+  /** The SOCKS port was moved to a fresh listener */
+  reopened?: boolean;
+  /** What couldn't be fixed: Tor never started, no controller, or no port would open */
+  stage?: 'off' | 'control' | 'socks';
+  port?: number;
+}
+
+/**
+ * Codes native errors carry, besides the message. "refused" means the proxy on the phone refused the connection,
+ * so the request never left the phone.
+ */
+export type NativeErrorKind = 'refused' | 'timeout' | 'offline' | 'network';
+
+export function errorKind(e: unknown): NativeErrorKind | undefined {
+  const code = (e as { code?: unknown } | null)?.code;
+  return code === 'refused' || code === 'timeout' || code === 'offline' || code === 'network' ? code : undefined;
+}
+
 export interface NativeHttpRequest {
   url: string;
   /** POST unless said otherwise. GET sends no body. */
@@ -27,8 +59,14 @@ export interface NativeHttpRequest {
 export interface ShrikeNativePlugin {
   torStart(): Promise<void>;
   torStatus(): Promise<TorStatus>;
-  /** Asks Tor to reload (SIGNAL RELOAD and NEWNYM), reopening listeners iOS may have closed while suspended. */
-  torRecover(): Promise<void>;
+  /** Checks the controller, the SOCKS port and whether Tor has a circuit. */
+  torCheck(): Promise<TorHealth>;
+  /**
+   * Moves the SOCKS port to a fresh listener if iOS took it back while the app was suspended (or with freshPort),
+   * reattaching the controller when that needs it. With newCircuit, also asks Tor for new circuits. One repair
+   * runs at a time. The app also does this by itself each time it comes back from the background.
+   */
+  torRepair(opts: { newCircuit: boolean; freshPort?: boolean }): Promise<TorRepairResult>;
   httpRequest(req: NativeHttpRequest): Promise<{ status: number; body: string }>;
   /**
    * Stores a secret in the iOS Keychain. With requireAuth the item is bound to the device passcode and

@@ -37,7 +37,7 @@ import {
 import { buildTransaction, BuildError, type Coin, type DraftTransaction, type Payment } from '../core/txbuilder';
 import type { Unit } from '../core/units';
 import { fromHex, toHex } from '../core/bytes';
-import { candlesUrl, parseCandles, parseTicker, tickerUrl, PRICE_MAX_AGE_MS, type Candle, type CandleInterval, type Ticker } from '../core/price';
+import { candlesUrl, parseCandles, parseTicker, tickerUrl, PriceError, PRICE_MAX_AGE_MS, type Candle, type CandleInterval, type Ticker } from '../core/price';
 import {
   decodeSecret,
   hashRecoveryCode,
@@ -49,7 +49,7 @@ import {
   cleanCode,
 } from '../core/totp';
 import { skinIndex, tierFor, SKINS, type Appearance, type FontId, type SkinId } from './look';
-import { isNative, ShrikeNative } from './native';
+import { errorKind, isNative, ShrikeNative, type TorHealth } from './native';
 import { readJson, removeJson, writeJson } from './storage';
 
 export interface NodeSettings {
@@ -94,13 +94,57 @@ export interface Contact {
   lastUsed?: number;
 }
 
+export type PriceStepId = 'tor' | 'route' | 'ask';
+export type PriceStepStatus = 'pending' | 'active' | 'done' | 'failed';
+
+/** One step of getting the price, shown on the Market tab while reconnecting. */
+export interface PriceStep {
+  id: PriceStepId;
+  label: string;
+  status: PriceStepStatus;
+  /** A few words on how it went, under the label */
+  note?: string;
+}
+
+/** Why the price couldn't be loaded, in words for the Market tab. */
+export interface PriceProblem {
+  kind: 'tor-stuck' | 'route' | 'site' | 'offline' | 'other';
+  title: string;
+  /** A few words for the step that failed */
+  short: string;
+  detail: string;
+  /** Offer to ask once without Tor: when the trouble is the route through Tor, not the phone */
+  canGoDirect: boolean;
+  /** The error itself, for a bug report */
+  technical?: string;
+}
+
 export interface PriceState {
   ticker: Ticker | null;
   /** unix ms of the last good answer */
   at: number;
+  /** Short form of the last problem, for the Wallet tab's dollar balance */
   error: string | null;
+  problem: PriceProblem | null;
   loading: boolean;
+  /** The steps of the current or last load. Shown when it isn't a routine refresh */
+  steps: PriceStep[] | null;
+  showSteps: boolean;
+  /** Which of up to three tries is running */
+  attempt: number;
+  /** Loads in a row that ended without a price, for spacing out automatic retries */
+  failures: number;
+  /** Whether the current or last load went through Tor */
+  viaTor: boolean;
 }
+
+/** Tor on the phone can't be reattached from inside the app. Only closing and reopening the app helps. */
+class TorStuckError extends Error {}
+
+const TOR_STUCK =
+  'Tor on this iPhone stopped responding while Shrike was in the background, and the app can’t restart it by itself. Close Shrike (swipe it away in the app switcher) and open it again.';
+
+const sleep = (ms: number) => (ms > 0 ? new Promise<void>((r) => setTimeout(r, ms)) : Promise.resolve());
 
 interface TwoFactorRecord {
   secret: string;
@@ -214,7 +258,13 @@ export class AppModel {
   ready = false;
   locked = false;
   contacts: Contact[] = [];
-  price: PriceState = { ticker: null, at: 0, error: null, loading: false };
+  price: PriceState = { ticker: null, at: 0, error: null, problem: null, loading: false, steps: null, showSteps: false, attempt: 0, failures: 0, viaTor: false };
+  /** Whether the embedded Tor exists here: the iPhone app. Tests and the browser stand-in can turn it on */
+  torAvailable = isNative;
+  /** Pauses in the price steps, so each can be seen. Tests set them to zero */
+  priceTiming = { beat: 350, settle: 900, backoff: [2500, 5000], circuitWait: 20_000, askTimeout: 30_000 };
+  /** Screens showing the price right now, which want it fetched again when the app comes back */
+  private priceWatchers = 0;
   /** Recovery codes still unused, while two-factor is on */
   recoveryLeft = 0;
   /** New recovery codes not yet confirmed as saved. Kept here so locking the app doesn't lose them */
@@ -281,8 +331,9 @@ export class AppModel {
         if (this.settings.lockOnOpen && this.wallets.length > 0 && isNative && away > 60_000) {
           this.locked = true;
           this.emit();
-        } else if (this.settings.node) {
-          void this.refresh();
+        } else {
+          if (this.settings.node) void this.refresh();
+          if (this.priceWatchers > 0) void this.loadPrice(true);
         }
       }
     }).catch(() => undefined);
@@ -295,6 +346,7 @@ export class AppModel {
       this.locked = false;
       this.emit();
       if (this.settings.node) void (this.rpc ? this.refresh() : this.connect());
+      if (this.priceWatchers > 0) void this.loadPrice(true);
     }
     return res.ok;
   }
@@ -333,20 +385,42 @@ export class AppModel {
   // ------------------------------------------------------------------------------------------- node
 
   /**
-   * Over Tor, a request that fails at the network level gets one retry after asking Tor to reload: iOS can close
-   * Tor's listening socket while the app is suspended, and a reload reopens it.
+   * Over Tor, a request that fails at the network level gets one retry after a repair: iOS takes back Tor's
+   * SOCKS port from an app it has suspended, and the repair opens a fresh one. A request the port refused never
+   * left the phone, so it's sent again even when it's a broadcast.
    */
   private transport(node: NodeSettings): HttpTransport {
     return async (req) => {
       try {
         return await ShrikeNative.httpRequest({ ...req, useTor: node.useTor });
       } catch (e) {
-        if (!node.useTor || !req.retryable) throw e;
-        await ShrikeNative.torRecover().catch(() => undefined);
+        const neverSent = errorKind(e) === 'refused';
+        if (!node.useTor || !this.torAvailable || !(req.retryable || neverSent)) throw e;
+        const fixed = await ShrikeNative.torRepair({ newCircuit: !neverSent }).catch(() => ({ ok: false, stage: undefined }));
+        if (!fixed.ok && fixed.stage === 'control') throw new Error(TOR_STUCK);
         await this.waitForTor(30_000);
         return ShrikeNative.httpRequest({ ...req, useTor: node.useTor });
       }
     };
+  }
+
+  /**
+   * Before talking to the node: if iOS took back Tor's SOCKS port or control connection while the app was
+   * suspended, reopen them. Says so in the status banner only when there's something to fix.
+   */
+  private async healTor(): Promise<void> {
+    if (!this.torAvailable || !this.settings.node?.useTor) return;
+    let h: TorHealth;
+    try {
+      h = await ShrikeNative.torCheck();
+    } catch {
+      return;
+    }
+    if (h.state === 'off' || (h.controller && h.socks)) return;
+    this.conn = { phase: 'tor', message: h.socks ? 'Reconnecting to Tor on this iPhone' : 'Reopening Tor’s connection on this iPhone' };
+    this.emit();
+    const r = await ShrikeNative.torRepair({ newCircuit: false }).catch(() => ({ ok: false, stage: undefined }));
+    if (!r.ok && r.stage === 'control') throw new Error(TOR_STUCK);
   }
 
   private async waitForTor(limitMs: number): Promise<void> {
@@ -366,7 +440,7 @@ export class AppModel {
     for (;;) {
       const s = await ShrikeNative.torStatus();
       if (s.state === 'ready') return;
-      if (s.state === 'error') throw new Error(`Tor could not start: ${s.error ?? 'unknown error'}`);
+      if (s.state === 'error') throw new Error(/control port/i.test(s.error ?? '') ? TOR_STUCK : `Tor could not start: ${s.error ?? 'unknown error'}`);
       this.conn = { phase: 'tor', message: s.summary ? `Tor: ${s.summary}` : 'Starting Tor', progress: s.progress };
       this.emit();
       if (Date.now() - started > 180_000) throw new Error('Tor took too long to connect. Check the phone has internet access.');
@@ -442,6 +516,7 @@ export class AppModel {
   connect(): Promise<void> {
     return this.exclusive(async () => {
       try {
+        await this.healTor();
         const rpc = await this.getRpc();
         this.conn = { phase: 'connecting', message: 'Contacting your node' };
         this.emit();
@@ -463,6 +538,7 @@ export class AppModel {
     if (!this.rpc) return this.connect();
     return this.exclusive(async () => {
       try {
+        await this.healTor();
         const rpc = await this.getRpc();
         this.node = await readNodeStatus(rpc, this.net);
         await this.syncAll(rpc);
@@ -918,25 +994,208 @@ export class AppModel {
 
   // ------------------------------------------------------------------------------------------- price
 
-  /** Gets the XBT/USDC price, unless the last answer is under a minute old. Errors land in price.error. */
-  loadPrice(force = false): Promise<void> {
+  /**
+   * A screen that shows the price says so while it's open, so the price is fetched again when the app comes back
+   * to the foreground. Returns the function that says it's gone.
+   */
+  watchPrice(): () => void {
+    this.priceWatchers++;
+    return () => {
+      this.priceWatchers = Math.max(0, this.priceWatchers - 1);
+    };
+  }
+
+  /**
+   * Gets the XBT/USDC price, unless the last answer is under a minute old (or `force`). Through Tor it goes step
+   * by step, so the Market tab can show where it is: check Tor on the phone (and reopen what iOS took back),
+   * wait for a route, ask Neoxa Exchange. A failed try is followed by up to two more, each on a new route.
+   * Routine refreshes stay quiet; the steps show when there's no price yet, after a failure, or with `show`.
+   * `direct` asks once without Tor, when the person chooses to.
+   */
+  loadPrice(force = false, how: { show?: boolean; direct?: boolean } = {}): Promise<void> {
     if (!this.settings.prices) return Promise.resolve();
     if (!force && this.price.ticker && Date.now() - this.price.at < PRICE_MAX_AGE_MS) return Promise.resolve();
-    if (this.priceReq) return this.priceReq;
-    this.price = { ...this.price, loading: true };
-    this.emit();
-    this.priceReq = (async () => {
-      try {
-        const res = await this.publicGet(tickerUrl());
-        this.price = { ticker: parseTicker(res.body, res.status), at: Date.now(), error: null, loading: false };
-      } catch (e) {
-        this.price = { ...this.price, error: friendlyError(e), loading: false };
-      } finally {
-        this.priceReq = null;
+    if (this.priceReq) {
+      if (how.show && !this.price.showSteps) {
+        this.price = { ...this.price, showSteps: true };
         this.emit();
       }
-    })();
+      return this.priceReq;
+    }
+    this.priceReq = this.runPriceLoad(how).finally(() => {
+      this.priceReq = null;
+      this.emit();
+    });
     return this.priceReq;
+  }
+
+  private async runPriceLoad(how: { show?: boolean; direct?: boolean }): Promise<void> {
+    const t = this.priceTiming;
+    const viaTor = this.settings.pricesOverTor && this.torAvailable && !how.direct;
+    const fresh = (): PriceStep[] => [
+      ...(viaTor
+        ? [
+            { id: 'tor' as const, label: 'Check Tor on this iPhone', status: 'pending' as const },
+            { id: 'route' as const, label: 'Open a route through Tor', status: 'pending' as const },
+          ]
+        : []),
+      { id: 'ask', label: viaTor ? 'Ask Neoxa Exchange for the price' : 'Ask Neoxa Exchange, without Tor', status: 'pending' },
+    ];
+    const show = !!how.show || !!how.direct || !this.price.ticker || this.price.problem != null;
+    this.price = { ...this.price, loading: true, steps: fresh(), showSteps: show, attempt: 1, viaTor };
+    this.emit();
+
+    const step = (id: PriceStepId, status: PriceStepStatus, patch: Partial<PriceStep> = {}) => {
+      this.price = { ...this.price, steps: (this.price.steps ?? []).map((x) => (x.id === id ? { ...x, status, ...patch } : x)) };
+      this.emit();
+    };
+    // Each finished step stays on screen a moment, so a fast reconnect still reads as one
+    const beat = () => (this.price.showSteps ? sleep(t.beat) : Promise.resolve());
+
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      if (attempt > 1) {
+        this.price = { ...this.price, attempt, steps: fresh(), showSteps: true };
+        this.emit();
+      }
+      let current: PriceStepId = viaTor ? 'tor' : 'ask';
+      try {
+        if (viaTor) {
+          step('tor', 'active');
+          const note = await this.readyTorForPrice(attempt > 1, (label) => step('tor', 'active', { label }));
+          step('tor', 'done', { note });
+          await beat();
+          current = 'route';
+          step('route', 'active');
+          const circuit = await this.waitForCircuit(t.circuitWait);
+          step('route', 'done', { note: circuit ? undefined : 'Still building, trying anyway' });
+          await beat();
+        }
+        current = 'ask';
+        step('ask', 'active');
+        const res = await ShrikeNative.httpRequest({ url: tickerUrl(), method: 'GET', headers: { Accept: 'application/json' }, body: '', timeoutMs: t.askTimeout, useTor: viaTor });
+        const ticker = parseTicker(res.body, res.status);
+        step('ask', 'done');
+        this.price = { ...this.price, ticker, at: Date.now(), error: null, problem: null, loading: false, failures: 0 };
+        this.emit();
+        if (this.price.showSteps) await sleep(t.settle);
+        this.price = { ...this.price, steps: null, showSteps: false };
+        return;
+      } catch (e) {
+        lastError = e;
+        const p = this.priceProblem(e, viaTor);
+        step(current, 'failed', { note: p.short });
+        // Trying again in the app can't help a stuck Tor, or a phone with no connection
+        if (p.kind === 'tor-stuck' || p.kind === 'offline' || attempt === 3) break;
+        this.price = { ...this.price, showSteps: true };
+        this.emit();
+        await sleep(t.backoff[attempt - 1] ?? 0);
+      }
+    }
+    const problem = this.priceProblem(lastError, viaTor);
+    this.price = { ...this.price, loading: false, problem, error: problem.title, showSteps: true, failures: this.price.failures + 1 };
+    this.emit();
+  }
+
+  /**
+   * Gets Tor ready for a request: starts it if it isn't running, and reopens what iOS took back while the app was
+   * suspended. On a second or third try, also asks Tor for a new route. Returns a note for the step.
+   */
+  private async readyTorForPrice(newRoute: boolean, label: (text: string) => void): Promise<string | undefined> {
+    let h = await ShrikeNative.torCheck();
+    if (h.state === 'off') {
+      label('Start Tor on this iPhone');
+      await ShrikeNative.torStart();
+      await this.waitForTorProgress(120_000, label);
+      h = await ShrikeNative.torCheck();
+    }
+    let note: string | undefined;
+    if (!h.controller || !h.socks) {
+      label(h.socks ? 'Reconnect to Tor on this iPhone' : 'Reopen Tor’s connection on this iPhone');
+      const r = await ShrikeNative.torRepair({ newCircuit: newRoute });
+      if (!r.ok) throw r.stage === 'socks' ? new TorStuckError('Tor couldn’t open a new local port') : new TorStuckError(TOR_STUCK);
+      // Another request may have done the reopening a moment ago; what the check found is what happened
+      note = !h.socks ? 'iOS had closed it while Shrike was in the background. Reopened' : 'Reconnected';
+    } else if (newRoute) {
+      label('Pick a new route through Tor');
+      await ShrikeNative.torRepair({ newCircuit: true });
+    }
+    if (h.state !== 'ready') await this.waitForTorProgress(120_000, label);
+    return note;
+  }
+
+  private async waitForTorProgress(limitMs: number, label: (text: string) => void): Promise<void> {
+    const started = Date.now();
+    for (;;) {
+      const s = await ShrikeNative.torStatus();
+      if (s.state === 'ready') return;
+      if (s.state === 'error') throw /control port/i.test(s.error ?? '') ? new TorStuckError(TOR_STUCK) : new Error(`Tor could not start: ${s.error ?? 'unknown error'}`);
+      label(`Start Tor on this iPhone (${s.progress}%)`);
+      if (Date.now() - started > limitMs) throw new Error('Tor took too long to connect. Check the phone has internet access.');
+      await sleep(600);
+    }
+  }
+
+  /** Waits for Tor to have a circuit, up to `limitMs`. False if it still hadn't. */
+  private async waitForCircuit(limitMs: number): Promise<boolean> {
+    const started = Date.now();
+    for (;;) {
+      const h = await ShrikeNative.torCheck().catch(() => null);
+      if (h?.circuit) return true;
+      if (Date.now() - started >= limitMs) return false;
+      await sleep(800);
+    }
+  }
+
+  /** Puts a failed price load in words: what happened, and what can be done about it. */
+  private priceProblem(e: unknown, viaTor: boolean): PriceProblem {
+    const technical = e instanceof Error ? e.message : e != null ? String((e as { message?: unknown }).message ?? e) : undefined;
+    if (e instanceof TorStuckError) {
+      return {
+        kind: 'tor-stuck',
+        title: 'Tor on this iPhone stopped responding',
+        short: 'Couldn’t reattach to Tor',
+        detail:
+          'iOS closed Tor’s connections while Shrike was in the background, and this time the app couldn’t reopen them. Close Shrike (swipe it away in the app switcher) and open it again. Your wallets aren’t affected.',
+        canGoDirect: viaTor,
+        technical,
+      };
+    }
+    if (e instanceof PriceError) {
+      const blocked = /HTTP (403|429|503)/.test(e.message);
+      return {
+        kind: 'site',
+        title: blocked ? 'Neoxa Exchange turned the request away' : 'Neoxa Exchange didn’t send a price',
+        short: blocked ? `Turned away (${/HTTP \d+/.exec(e.message)?.[0] ?? 'refused'})` : 'No price in the answer',
+        detail: blocked && viaTor ? 'Some sites turn away requests that come through Tor. Try again later, or get the price once without Tor.' : e.message,
+        canGoDirect: viaTor,
+        technical,
+      };
+    }
+    const kind = errorKind(e);
+    if (kind === 'offline') {
+      return { kind: 'offline', title: 'This iPhone is offline', short: 'No internet connection', detail: 'Connect to Wi-Fi or mobile data, then try again.', canGoDirect: false, technical };
+    }
+    if (kind === 'timeout') {
+      return {
+        kind: 'route',
+        title: 'Neoxa Exchange didn’t answer in time',
+        short: 'No answer in time',
+        detail: viaTor ? 'Three routes through Tor in a row were too slow. The Tor network or the exchange may be busy.' : 'The exchange may be busy or down.',
+        canGoDirect: viaTor,
+        technical,
+      };
+    }
+    return {
+      kind: viaTor ? 'route' : 'other',
+      title: viaTor ? 'Couldn’t reach Neoxa Exchange through Tor' : 'Couldn’t reach Neoxa Exchange',
+      short: viaTor ? 'This route didn’t get through' : 'Didn’t get through',
+      detail: viaTor
+        ? 'Tor on this iPhone is working, but three routes in a row couldn’t get through to the exchange. The exchange or the Tor network may be having trouble.'
+        : 'The exchange may be down, or this network may block it.',
+      canGoDirect: viaTor,
+      technical,
+    };
   }
 
   async loadCandles(interval: CandleInterval, limit: number): Promise<Candle[]> {
@@ -944,18 +1203,22 @@ export class AppModel {
     return parseCandles(res.body, res.status);
   }
 
-  /** A read-only request to a public site, through Tor when the price setting says so. */
+  /**
+   * A read-only request to a public site, through Tor when the price setting says so. If Tor's port on the phone
+   * refused it, Tor is repaired and the request sent once more.
+   */
   private async publicGet(url: string): Promise<{ status: number; body: string }> {
-    const useTor = this.settings.pricesOverTor && isNative;
-    if (useTor) {
-      const s = await ShrikeNative.torStatus();
-      if (s.state !== 'ready') {
-        await ShrikeNative.torStart();
-        await this.waitForTor(120_000);
-      }
-    }
+    const useTor = this.settings.pricesOverTor && this.torAvailable;
+    const ask = () => ShrikeNative.httpRequest({ url, method: 'GET', headers: { Accept: 'application/json' }, body: '', timeoutMs: 45_000, useTor });
     try {
-      return await ShrikeNative.httpRequest({ url, method: 'GET', headers: { Accept: 'application/json' }, body: '', timeoutMs: 45_000, useTor });
+      if (useTor) await this.readyTorForPrice(false, () => undefined);
+      try {
+        return await ask();
+      } catch (e) {
+        if (!useTor || errorKind(e) !== 'refused') throw e;
+        await ShrikeNative.torRepair({ newCircuit: false });
+        return await ask();
+      }
     } catch (e) {
       throw new Error(`Couldn’t reach Neoxa Exchange${useTor ? ' through Tor' : ''}. ${e instanceof Error ? e.message : String(e)}`);
     }
