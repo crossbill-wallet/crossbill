@@ -4,7 +4,7 @@ import { formatAmount, formatFeeRate, parseAmount, unitLabel, type Unit } from '
 import type { DraftTransaction, Payment } from '../core/txbuilder';
 import { friendlyError, toCoin, type WalletRuntime } from '../app/model';
 import { ShrikeNative } from '../app/native';
-import { Address, Amount, Field, ReplayStatus, Screen, Sheet, parsePaymentText, shortAddress, useApp, useNav } from './kit';
+import { Address, Amount, Field, ReplayStatus, Screen, SecondFactorField, Sheet, codeReady, parsePaymentText, shortAddress, useApp, useNav } from './kit';
 
 interface Recipient {
   address: string;
@@ -35,9 +35,11 @@ export function Send({ address, amount, label, coins }: { address?: string; amou
   const [picked, setPicked] = useState<Set<string>>(new Set(coins ?? []));
   const [picking, setPicking] = useState(false);
   const [review, setReview] = useState<DraftTransaction | null>(null);
-  // Which recipient the "My wallets" sheet fills in, if it's open
+  // Which recipient the "My wallets" or "Saved" sheet fills in, if one is open
   const [toOwnFor, setToOwnFor] = useState<number | null>(null);
+  const [toSavedFor, setToSavedFor] = useState<number | null>(null);
   const ownWallets = app.networkWallets().filter((x) => x.config.id !== w.config.id);
+  const saved = app.networkContacts();
 
   const feeRate = feeTarget === 'custom' ? Number(customRate) : (app.fees?.[feeTarget] ?? NaN);
 
@@ -105,7 +107,8 @@ export function Send({ address, amount, label, coins }: { address?: string; amou
                   }}
                 />
               </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              {app.contactFor(r.address) && <div className="hint">Saved as {app.contactFor(r.address)!.name}</div>}
+              <div className="button-row">
                 <button
                   className="btn secondary small"
                   onClick={async () => {
@@ -116,7 +119,7 @@ export function Send({ address, amount, label, coins }: { address?: string; amou
                     }
                   }}
                 >
-                  Scan QR code
+                  Scan
                 </button>
                 <button
                   className="btn secondary small"
@@ -131,6 +134,9 @@ export function Send({ address, amount, label, coins }: { address?: string; amou
                   }}
                 >
                   Paste
+                </button>
+                <button className="btn secondary small" onClick={() => setToSavedFor(i)}>
+                  Saved
                 </button>
                 {ownWallets.length > 0 && (
                   <button className="btn secondary small" onClick={() => setToOwnFor(i)}>
@@ -272,6 +278,42 @@ export function Send({ address, amount, label, coins }: { address?: string; amou
           </div>
         </Sheet>
       )}
+      {toSavedFor != null && (
+        <Sheet title="Saved addresses" onClose={() => setToSavedFor(null)}>
+          {saved.length === 0 ? (
+            <p className="note" style={{ marginTop: 0 }}>
+              Nothing saved yet. Add addresses on the Contacts tab, or save one after you send to it.
+            </p>
+          ) : (
+            saved.map((c) => (
+              <button
+                key={c.id}
+                className="choice"
+                onClick={() => {
+                  const r = recipients[toSavedFor];
+                  update(toSavedFor, { address: c.address, label: r?.label.trim() ? r.label : c.name });
+                  setToSavedFor(null);
+                }}
+              >
+                <span style={{ minWidth: 0 }}>
+                  <span className="what">{c.name}</span>
+                  <div className="why mono">{shortAddress(c.address)}</div>
+                </span>
+              </button>
+            ))
+          )}
+          <button
+            className="btn secondary"
+            style={{ width: '100%', marginTop: 6 }}
+            onClick={() => {
+              setToSavedFor(null);
+              nav.push({ name: 'contact' });
+            }}
+          >
+            Add an address
+          </button>
+        </Sheet>
+      )}
       {toOwnFor != null && (
         <Sheet title="Send to one of your wallets" onClose={() => setToOwnFor(null)}>
           <p className="note" style={{ marginTop: 0 }}>
@@ -308,9 +350,17 @@ export function Review({ w, draft, onBack, onDone, title = 'Review', replacing }
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
+  const [code, setCode] = useState('');
   const payments = draft.outputs.filter((o) => !o.isChange);
   const total = payments.reduce((s, o) => s + o.value, 0) + draft.fee;
   const decision = app.replayDecision();
+  const needCode = app.settings.twoFactor;
+  // Addresses paid that aren't saved yet and aren't this phone's own wallets, to offer saving after the send
+  const [unsaved] = useState(() =>
+    payments
+      .map((o) => ({ address: o.payment?.address ?? '', label: o.payment?.label ?? '' }))
+      .filter((p) => p.address && !app.contactFor(p.address) && !app.isOwnAddress(p.address)),
+  );
 
   if (sent) {
     return (
@@ -322,6 +372,7 @@ export function Review({ w, draft, onBack, onDone, title = 'Review', replacing }
         <ReplayStatus decision={decision} compact />
         <div className="section-title">Transaction ID</div>
         <div className="txid">{sent}</div>
+        {!replacing && unsaved.map((p) => <SaveAddress key={p.address} address={p.address} label={p.label} />)}
         <div style={{ height: 28 }} />
         <button className="btn primary" onClick={onDone}>
           Done
@@ -391,19 +442,22 @@ export function Review({ w, draft, onBack, onDone, title = 'Review', replacing }
           </div>
         </dl>
         <p className="note">Check each address group by group against where it came from. Sending can’t be undone once it confirms.</p>
+        {needCode && <SecondFactorField value={code} onChange={setCode} />}
         {error && <div className="banner error">{error}</div>}
         <button
           className="btn primary"
-          disabled={sending}
+          disabled={sending || (needCode && !codeReady(code))}
           onClick={async () => {
             setSending(true);
             setError(null);
             try {
               const original = replacing ? w.snapshot?.txs.find((t) => t.txid === replacing) : undefined;
-              const s = await app.signAndBroadcast(w, draft, original ? app.txLabel(w, original) : undefined, replacing);
+              const s = await app.signAndBroadcast(w, draft, original ? app.txLabel(w, original) : undefined, replacing, needCode ? code : undefined);
               setSent(s.txid);
             } catch (e) {
               setError(friendlyError(e));
+              // A code is used up once accepted, so it never stays in the field for another try
+              setCode('');
             } finally {
               setSending(false);
             }
@@ -412,9 +466,47 @@ export function Review({ w, draft, onBack, onDone, title = 'Review', replacing }
           {sending ? 'Signing and sending' : 'Sign and send'}
         </button>
         <p className="note" style={{ textAlign: 'center' }}>
-          Face ID opens the seed for this one signature only.
+          {needCode ? 'After the code, Face ID opens the seed for this one signature only.' : 'Face ID opens the seed for this one signature only.'}
         </p>
       </main>
+    </div>
+  );
+}
+
+/** After a send to a new address: save it for next time, named from the payment's label. */
+function SaveAddress({ address, label }: { address: string; label: string }) {
+  const app = useApp();
+  const [name, setName] = useState(label);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (done) return <p className="note">Saved to Contacts as {name.trim()}.</p>;
+  return (
+    <div className="save-address">
+      <div className="section-title" style={{ marginTop: 0 }}>
+        Save this address?
+      </div>
+      <div className="mono note" style={{ marginBottom: 10 }}>
+        {shortAddress(address)}
+      </div>
+      <div className="input-row">
+        <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name, such as Kraken deposit" aria-label="Name for this address" />
+        <button
+          className="btn secondary small"
+          disabled={!name.trim()}
+          onClick={async () => {
+            setError(null);
+            try {
+              await app.saveContact({ name, address });
+              setDone(true);
+            } catch (e) {
+              setError(friendlyError(e));
+            }
+          }}
+        >
+          Save
+        </button>
+      </div>
+      {error && <div className="field"><div className="error">{error}</div></div>}
     </div>
   );
 }

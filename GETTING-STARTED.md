@@ -80,6 +80,15 @@ The node must be Bitcoin Knots following the BLAKE2b fork, with its wallet featu
 
 Never take a screenshot of seed words. Screenshots go to Photos, and often to iCloud. If you do take one, the app reminds you to delete it.
 
+### Two-factor (optional)
+
+Right after the first wallet, the app offers two-factor: a 6-digit code from an authenticator app before every send and before showing seed words. Tap **Skip for now** to leave it for later (Settings, Security, Two-factor).
+
+1. Tap **Set up two-factor**.
+2. In your authenticator app (Google Authenticator, Microsoft Authenticator, 2FAS, Ente Auth or the iPhone's Passwords app), add an account by scanning the QR code. It's strongest on another device, such as a second phone or a tablet.
+3. Type the 6-digit code it shows and tap **Turn on two-factor**.
+4. Write the eight recovery codes on the paper with your seed words. Each works once in place of a code if you lose the authenticator.
+
 ## Step 7: Check it with a small amount
 
 1. Compare the balance and the first receive address with Shrike on your computer.
@@ -91,7 +100,7 @@ Never take a screenshot of seed words. Screenshots go to Photos, and often to iC
 - **Free Apple ID:** the app stops opening 7 days after you install it. Connect the iPhone, open the project (`npm run ios:open` in this folder) and press Run. Don't delete the app first; installing over it keeps your wallets and settings.
 - **Paid Apple Developer account:** choose your paid team instead of Personal Team in Signing & Capabilities and press Run. That install lasts a year.
 - **Developer Mode** has to stay on for an app installed from Xcode. Turning it off doesn't delete anything, but the app won't open until it's back on.
-- **After changing the code:** run `npm run ios:sync`, then press Run.
+- **After changing the code, or downloading a new version:** run `npm install`, then `npm run ios:sync`, then press Run. Installing over the app keeps your wallets, settings and two-factor.
 
 ## When something goes wrong
 
@@ -105,6 +114,8 @@ Never take a screenshot of seed words. Screenshots go to Photos, and often to iC
 | "A TLS error caused the secure connection to fail" | Check **Use HTTPS** matches the address: on for StartOS's `https://` onion address on port 443, off for a plain RPC port such as 8332. |
 | "The node refused the RPC user name or password" | Make a new RPC user and enter it again. StartOS only shows a password once. |
 | "Couldn't reach your node" after a while | Tap the red banner, then Try Again. Check the node is running and the phone has a connection. |
+| "That code doesn't match" when turning on two-factor or sending | Set the iPhone's clock automatically (Settings, General, Date & Time), and the authenticator's device too. Codes change every 30 seconds; wait for a fresh one. |
+| The price says "Couldn't reach Neoxa Exchange through Tor" | Try again in a minute. If it keeps failing, turn off **Get the price through Tor** in Settings, which asks the exchange directly. |
 | The wallet isn't found on the node | This version supports the standard account 0 paths only: m/84'/0'/0', m/86'/0'/0', m/49'/0'/0' and m/44'/0'/0'. Check the derivation in desktop Shrike (the wallet's Settings, Keystore). |
 
 ## Making it your own

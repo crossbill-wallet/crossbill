@@ -1,6 +1,6 @@
 # Shrike for iPhone
 
-A personal iPhone build of the [Shrike](https://shrikewallet.com/) wallet: the unofficial Sparrow fork that follows Bitcoin's change of proof of work to BLAKE2b and signs with the unified opt-in signature hash. It talks only to your own Bitcoin Knots node, over Tor, and keeps your seed words in the iPhone Keychain behind Face ID.
+A personal iPhone build of the [Shrike](https://shrikewallet.com/) wallet: the unofficial Sparrow fork that follows Bitcoin's change of proof of work to BLAKE2b and signs with the unified opt-in signature hash. It talks to your own Bitcoin Knots node over Tor, and keeps your seed words in the iPhone Keychain behind Face ID. The only other site it contacts is Neoxa Exchange, for the XBT price, which can be turned off.
 
 Unofficial: not affiliated with or endorsed by the Shrike, Sparrow or Bitcoin Knots projects.
 
@@ -18,6 +18,12 @@ Not audited. Use at your own risk, under the same Apache 2.0 terms as Shrike (se
 - Labels and frozen coins, imported and exported as BIP329 files, the same format as Shrike's Export Labels and Import Labels.
 - Face ID to open the app and to sign. The seed is read from the Keychain only for the moment of signing. Screens showing seed words warn if a screenshot is taken.
 - Transaction pages link to a block explorer: mempool.guide by default, as in desktop Shrike, or your own, or none. Onion explorers open in Onion Browser.
+- Two-factor: a 6-digit code from any authenticator app (time-based, RFC 6238) before every send, fee raise and cancel, before showing seed words, and to turn it off. Offered once after setup, with Skip, and any time in Settings. Eight one-time recovery codes. The key stays in the Keychain on this device.
+- A tab bar along the bottom: Wallet, Market, Contacts and Settings.
+- Market: the XBT/USDC price from [Neoxa Exchange](https://neoxa.exchange/trade/BTCB2_USDC)'s public API, through Tor, with a chart (day, week, month, year), what XBT is, and links to the community. Tap the balance to see it in US dollars.
+- Contacts: saved addresses, such as exchange deposit addresses, to pick from Saved on the Send screen. After a send to a new address the app offers to save it.
+- Frozen coins show with an ice-blue tint in the Coins list.
+- Appearance: light, dark, or matching the iPhone; four skins, three of which open as the phone's wallets hold 0.1, 1 and 10 confirmed coins on mainnet; and three fonts (Atkinson Hyperlegible, San Francisco, IBM Plex).
 
 What it doesn't do (yet): hardware wallets, multisig, PSBT import or export, payment codes, silent payments, and connecting to anything but your own Knots node.
 
@@ -71,6 +77,10 @@ If the app doesn't find your wallet on the node, check the derivation in Shrike 
 | Coin selection, change, fees, replace by fee | `src/core/txbuilder.ts` |
 | Knots RPC and Cormorant-compatible sync | `src/core/rpc.ts`, `sync.ts` |
 | Labels (BIP329) | `src/core/labels.ts` |
+| Two-factor codes and recovery codes | `src/core/totp.ts` |
+| XBT price from Neoxa Exchange | `src/core/price.ts` |
+| Light and dark, skins, fonts | `src/app/look.ts`, `src/ui/styles.css` |
+| Community links, donation address | `src/app/links.ts` |
 | App model and screens | `src/app`, `src/ui` |
 | Native: Tor, Keychain, Face ID, QR scanner | `plugins/shrike-native/ios/Sources` |
 
@@ -82,13 +92,18 @@ npm test
 
 - `tests/core-vectors.test.ts` checks keys, descriptors, addresses and 64 fully signed transactions byte for byte against output from Shrike's own Java library (drongo), for all four address types, with and without the unified signature hash and a passphrase. It also runs the 166 reference vectors for the unified signature hash that ship with drongo.
 - `tests/core-logic.test.ts` covers coin selection, fees, the replay decision, v2 headers, addresses, labels and the signature readback.
+- `tests/features.test.ts` checks the two-factor codes against the RFC 6238 and RFC 4226 test vectors, recovery codes, reading Neoxa's price data, and the skin thresholds.
 - `tests/regtest.e2e.test.ts` runs the whole core against a real Bitcoin Knots `v29.4.1.knots20260508` node in regtest, with the fork activating at height 20: it checks the opt-in is declined before activation and taken after, that the node accepts sends from all four address types, that a forged `0x21` is refused, that fee bumping replaces the original, and that a spent coin is never offered again. Point it at a build of that Knots tag: `KNOTS_BIN=/path/to/knots/build/bin npm test`.
 
 `tools/vectorgen` holds the Java program that produced the reference vectors from Shrike's own library.
 
 ## Trying it in a browser
 
-`DEV_RPC_TARGET=http://127.0.0.1:18443 npm run dev` serves the app on your Mac against a local regtest node, with Tor off. The browser version keeps seed words in memory only and exists for testing screens; don't use it with real funds.
+`DEV_RPC_TARGET=http://127.0.0.1:18443 npm run dev` serves the app on your Mac against a local regtest node, with Tor off. The browser version keeps seed words in memory only and exists for testing screens; don't use it with real funds. Prices come straight from Neoxa Exchange there, or from `DEV_PRICE_TARGET` if set.
+
+## What's next
+
+[docs/multi-server.md](docs/multi-server.md) scopes choosing between several servers, each with its own wallets, after Face ID. It isn't built yet.
 
 ## Contributing
 

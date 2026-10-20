@@ -17,9 +17,15 @@ export class ShrikeNativeWeb extends WebPlugin implements ShrikeNativePlugin {
   }
 
   async httpRequest(req: NativeHttpRequest): Promise<{ status: number; body: string }> {
+    const u = new URL(req.url);
+    if (req.method === 'GET') {
+      // Public price data: https://neoxa.exchange/api/... -> /__price/api/..., forwarded by vite.config.ts.
+      // Never through Tor here; the browser version is for testing screens only
+      const res = await fetch(`/__price${u.pathname}${u.search}`, { headers: req.headers });
+      return { status: res.status, body: await res.text() };
+    }
     if (req.useTor) throw new Error('Tor is only available in the iPhone app. Turn Tor off to test against a local node.');
     // http://host:port/path -> /__rpc/path, forwarded by vite.config.ts to the dev node
-    const u = new URL(req.url);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), req.timeoutMs);
     try {
@@ -57,6 +63,10 @@ export class ShrikeNativeWeb extends WebPlugin implements ShrikeNativePlugin {
 
   async scanQr(): Promise<{ value: string | null }> {
     return { value: window.prompt('Paste what the QR code holds') };
+  }
+
+  async copyPrivately(opts: { text: string }): Promise<void> {
+    await navigator.clipboard.writeText(opts.text);
   }
 
   async openUrl(opts: { url: string }): Promise<{ opened: boolean }> {

@@ -1,37 +1,76 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer, useState } from 'react';
 import { StatusBar, Style } from '@capacitor/status-bar';
+import { applyLook, onSystemThemeChange, resolveTheme } from '../app/look';
 import { isNative } from '../app/native';
-import { NavProvider, useApp, useNav, type Route } from './kit';
+import { NavProvider, TabBar, useApp, useNav, type Route } from './kit';
 import { Home } from './Home';
+import { Market } from './Market';
+import { ContactEdit, Contacts } from './Contacts';
 import { Receive } from './Receive';
 import { Send } from './Send';
 import { Bump, TxDetail } from './Tx';
-import { Settings, WalletInfo } from './Settings';
+import { Appearance, Donate, ExplorerScreen, ReplayScreen, Settings, WalletInfo } from './Settings';
 import { AddWallet, NodeForm, Welcome } from './Setup';
+import { RecoveryCodes, TwoFactorScreen, TwoFactorSetup } from './TwoFactor';
 
-/** White status bar text over the black band (home, welcome, lock), and the system's choice elsewhere. */
-function useStatusBar(onBlack: boolean) {
+/** When the page started, so the first lock screen after launch can hold the bird a little longer. */
+const BOOT = Date.now();
+
+/** Applies light or dark, the skin and the font, and follows the iPhone when set to match it. */
+function useLook() {
+  const app = useApp();
+  const { appearance, font } = app.settings;
+  const skin = app.skin;
+  const [, redraw] = useReducer((x: number) => x + 1, 0);
   useEffect(() => {
-    if (!isNative) return;
-    const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    StatusBar.setStyle({ style: onBlack || dark ? Style.Dark : Style.Light }).catch(() => undefined);
-  }, [onBlack]);
+    applyLook({ appearance, skin, font });
+    if (appearance !== 'system') return;
+    return onSystemThemeChange(() => {
+      applyLook({ appearance, skin, font });
+      redraw();
+    });
+  }, [appearance, skin, font]);
 }
 
+/** White status bar text over the dark band (home, welcome, lock) and in dark mode; dark text otherwise. */
+function useStatusBar(onBand: boolean) {
+  const app = useApp();
+  const dark = resolveTheme(app.settings.appearance) === 'dark';
+  useEffect(() => {
+    if (!isNative) return;
+    StatusBar.setStyle({ style: onBand || dark ? Style.Dark : Style.Light }).catch(() => undefined);
+  }, [onBand, dark]);
+}
+
+/**
+ * The bird holds the screen for a moment before Face ID is asked for, longer just after launch so the launch
+ * screen's bird settles into this one. The button shows only if Face ID was cancelled or failed.
+ */
 function Lock() {
   useStatusBar(true);
   const app = useApp();
-  const [failed, setFailed] = useState(false);
+  const [phase, setPhase] = useState<'hold' | 'asking' | 'failed'>('hold');
+  const ask = () => {
+    setPhase('asking');
+    void app.unlock().then((ok) => {
+      if (!ok) setPhase('failed');
+    });
+  };
   useEffect(() => {
-    void app.unlock().then((ok) => setFailed(!ok));
-  }, [app]);
+    const t = setTimeout(ask, Date.now() - BOOT < 4000 ? 1600 : 700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
     <div className="lock">
       <img src="./bird.png" alt="" />
-      <button className="btn primary" style={{ maxWidth: 320, background: '#fff', color: '#000' }} onClick={() => void app.unlock().then((ok) => setFailed(!ok))}>
-        Open with Face ID
-      </button>
-      {failed && <p style={{ color: 'var(--on-mask-dim)' }}>Face ID didn’t confirm it’s you. Try again.</p>}
+      <div className="lock-name">Shrike</div>
+      <div className={`lock-actions${phase === 'failed' ? ' on' : ''}`} aria-hidden={phase !== 'failed'}>
+        <button className="btn primary" onClick={ask} tabIndex={phase === 'failed' ? 0 : -1}>
+          Open with Face ID
+        </button>
+        <p>Face ID didn’t confirm it’s you. Try again.</p>
+      </div>
     </div>
   );
 }
@@ -50,6 +89,12 @@ function Current({ route }: { route: Route }) {
   switch (route.name) {
     case 'home':
       return <Home />;
+    case 'market':
+      return <Market />;
+    case 'contacts':
+      return <Contacts />;
+    case 'settings':
+      return <Settings />;
     case 'receive':
       return <Receive />;
     case 'send':
@@ -58,14 +103,24 @@ function Current({ route }: { route: Route }) {
       return <TxDetail txid={route.txid} />;
     case 'bump':
       return <Bump txid={route.txid} cancel={route.cancel} />;
-    case 'settings':
-      return <Settings />;
     case 'node':
       return <NodeForm onSaved={() => nav.pop()} />;
     case 'add-wallet':
       return <AddWallet seedFrom={route.seedFrom} />;
     case 'wallet-info':
       return <WalletInfo id={route.id} />;
+    case 'contact':
+      return <ContactEdit id={route.id} address={route.address} label={route.label} />;
+    case 'two-factor':
+      return <TwoFactorScreen />;
+    case 'appearance':
+      return <Appearance />;
+    case 'explorer':
+      return <ExplorerScreen />;
+    case 'replay':
+      return <ReplayScreen />;
+    case 'donate':
+      return <Donate />;
   }
 }
 
@@ -73,11 +128,60 @@ function Stack() {
   const nav = useNav();
   const route = nav.stack[nav.stack.length - 1];
   useStatusBar(route.name === 'home');
-  return <Current route={route} />;
+  return (
+    <>
+      <Current route={route} />
+      {nav.stack.length === 1 && <TabBar />}
+    </>
+  );
+}
+
+/**
+ * Past setup. The first time here, two-factor is offered once, with Skip. It's decided when this mounts, so
+ * turning it on partway through still leaves the recovery codes on screen until Done.
+ */
+function Main() {
+  const app = useApp();
+  const [offer, setOffer] = useState(() => !app.settings.twoFactorOffered && !app.settings.twoFactor);
+  if (app.pendingRecoveryCodes) {
+    return (
+      <Codes
+        codes={app.pendingRecoveryCodes}
+        onDone={() => {
+          app.acknowledgeRecoveryCodes();
+          if (!app.settings.twoFactorOffered) void app.updateSettings({ twoFactorOffered: true });
+          setOffer(false);
+        }}
+      />
+    );
+  }
+  if (offer && !app.settings.twoFactor) {
+    return (
+      <Offer
+        onDone={() => {
+          void app.updateSettings({ twoFactorOffered: true });
+          setOffer(false);
+        }}
+      />
+    );
+  }
+  return <Stack />;
+}
+
+/** Recovery codes just made, shown until they're saved, even if the app locked in between. */
+function Codes({ codes, onDone }: { codes: string[]; onDone: () => void }) {
+  useStatusBar(false);
+  return <RecoveryCodes codes={codes} title="Recovery codes" onDone={onDone} />;
+}
+
+function Offer({ onDone }: { onDone: () => void }) {
+  useStatusBar(false);
+  return <TwoFactorSetup onboarding onDone={onDone} />;
 }
 
 export function Root() {
   const app = useApp();
+  useLook();
   if (!app.ready) return null;
   if (app.locked) return <Lock />;
   if (!app.settings.node || !app.active) {
@@ -89,7 +193,7 @@ export function Root() {
   }
   return (
     <NavProvider>
-      <Stack />
+      <Main />
     </NavProvider>
   );
 }

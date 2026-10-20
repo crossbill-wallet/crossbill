@@ -1,25 +1,51 @@
 import { useEffect, useRef, useState } from 'react';
 import { isOptedIn } from '../core/replay';
 import { formatAmount, unitLabel } from '../core/units';
+import { formatPrice, formatUsd } from '../core/price';
+import { SKINS } from '../app/look';
 import type { WalletRuntime } from '../app/model';
-import { Address, Amount, Chevron, GearIcon, Sheet, shortAddress, timeAgo, useApp, useNav, Field } from './kit';
+import { Address, Amount, Chevron, Sheet, Snowflake, shortAddress, timeAgo, useApp, useNav, Field } from './kit';
 
 type Tab = 'activity' | 'coins' | 'addresses';
+
+/** The list last looked at, so coming back from a transaction or a send lands on the same one. */
+let lastTab: Tab = 'activity';
 
 export function Home() {
   const app = useApp();
   const nav = useNav();
   const w = app.active!;
-  const [tab, setTab] = useState<Tab>('activity');
+  const [tab, setTabState] = useState<Tab>(lastTab);
+  const setTab = (t: Tab) => {
+    lastTab = t;
+    setTabState(t);
+  };
   const [switcher, setSwitcher] = useState(false);
   const snap = w.snapshot;
   const unit = app.settings.unit;
   const on = isOptedIn(app.replayDecision());
+  const usd = app.settings.balanceView === 'usd' && app.settings.prices;
+  const ticker = app.price.ticker;
+
+  // The dollar figure keeps to a price under a minute old while it's showing
+  useEffect(() => {
+    if (!usd) return;
+    void app.loadPrice();
+    const t = setInterval(() => void app.loadPrice(), 60_000);
+    return () => clearInterval(t);
+  }, [usd, app]);
 
   const bal = snap?.balance ?? { confirmed: 0, unconfirmed: 0, immature: 0 };
   const sub: string[] = [];
-  if (bal.unconfirmed) sub.push(`${formatAmount(bal.unconfirmed, unit, { sign: true })} ${unitLabel(unit)} unconfirmed`);
-  if (bal.immature) sub.push(`${formatAmount(bal.immature, unit)} ${unitLabel(unit)} still maturing`);
+  if (usd) {
+    if (ticker) sub.push(`At ${formatPrice(ticker.last)} per XBT${app.settings.network !== 'mainnet' ? ', the mainnet price' : ''}`);
+    else sub.push(app.price.error ? 'Price unavailable. Tap to show coins' : 'Getting the XBT price');
+    if (ticker && bal.unconfirmed) sub.push(`${bal.unconfirmed > 0 ? '+' : '-'}${formatUsd(Math.abs(bal.unconfirmed), ticker.last)} unconfirmed`);
+  } else {
+    if (bal.unconfirmed) sub.push(`${formatAmount(bal.unconfirmed, unit, { sign: true })} ${unitLabel(unit)} unconfirmed`);
+    if (bal.immature) sub.push(`${formatAmount(bal.immature, unit)} ${unitLabel(unit)} still maturing`);
+  }
+  const fresh = app.newSkin ? SKINS.find((s) => s.id === app.newSkin) : undefined;
 
   return (
     <div className="screen">
@@ -30,15 +56,16 @@ export function Home() {
             <Chevron dir="down" />
           </button>
           <BlockHeight />
-          <button className="icon-btn" aria-label="Settings" onClick={() => nav.push({ name: 'settings' })}>
-            <GearIcon />
-          </button>
         </div>
         <StatusBanner />
-        <div className="balance" aria-label="Balance">
-          {formatAmount(bal.confirmed, unit)}
-          <small>{unitLabel(unit)}</small>
-        </div>
+        <button
+          className={`balance${usd ? ' usd' : ''}`}
+          onClick={() => app.settings.prices && void app.updateSettings({ balanceView: usd ? 'coin' : 'usd' })}
+          aria-label={usd ? 'Balance in US dollars. Tap to show it in coins' : `Balance in ${unitLabel(unit)}${app.settings.prices ? '. Tap to show it in US dollars' : ''}`}
+        >
+          {usd ? (ticker ? formatUsd(bal.confirmed, ticker.last) : '$ ...') : formatAmount(bal.confirmed, unit)}
+          <small>{usd ? 'USD' : unitLabel(unit)}</small>
+        </button>
         <div className="sub">{sub.join(', ') || (snap ? ' ' : 'Not synced yet')}</div>
         <div className="sub replay-line">
           <span className={`glint ${app.node ? (on ? 'on' : 'warn') : ''}`} />
@@ -49,6 +76,29 @@ export function Home() {
           <button onClick={() => nav.push({ name: 'send' })}>Send</button>
         </div>
       </section>
+
+      {fresh && (
+        <div className="unlock-banner" data-skin={fresh.id}>
+          <span className="swatch" aria-hidden />
+          <span className="text">
+            <strong>{fresh.name} skin opened.</strong> Try it in Settings, Appearance.
+          </span>
+          <button
+            className="btn small secondary"
+            onClick={() => {
+              app.dismissNewSkin();
+              nav.push({ name: 'appearance' });
+            }}
+          >
+            Look
+          </button>
+          <button className="close" aria-label="Dismiss" onClick={() => app.dismissNewSkin()}>
+            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+              <path d="M2 2l10 10M12 2 2 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       <nav className="tabs" role="tablist">
         {(['activity', 'coins', 'addresses'] as Tab[]).map((t) => (
@@ -260,11 +310,15 @@ function Coins({ w }: { w: WalletRuntime }) {
           const preFork = activation != null && c.height != null && c.height < activation;
           return (
             <li key={`${c.txid}:${c.vout}`}>
-              <button className="row" onClick={() => setOpen(`${c.txid}:${c.vout}`)}>
+              <button className={`row${c.frozen ? ' frozen' : ''}`} onClick={() => setOpen(`${c.txid}:${c.vout}`)}>
                 <div className="main">
-                  <div className="title">
-                    {c.label ?? shortAddress(c.address)}
-                    {c.frozen && <span className="pill">Frozen</span>}
+                  <div className="title with-pills">
+                    <span className="clip">{c.label ?? shortAddress(c.address)}</span>
+                    {c.frozen && (
+                      <span className="pill ice">
+                        <Snowflake /> Frozen
+                      </span>
+                    )}
                     {c.immature && <span className="pill">Maturing</span>}
                     {preFork && <span className="pill ember">Pre-fork</span>}
                   </div>
@@ -294,6 +348,11 @@ function CoinSheet({ w, coin, onClose, onSpend }: { w: WalletRuntime; coin: Retu
       <div className="big-amount">
         <Amount sats={coin.value} unit={app.settings.unit} />
       </div>
+      {coin.frozen && (
+        <div className="ice-note">
+          <Snowflake size={16} /> Frozen. Sends leave this coin alone until you unfreeze it.
+        </div>
+      )}
       <div style={{ margin: '10px 0 16px' }}>
         <Address value={coin.address} size="sm" />
       </div>

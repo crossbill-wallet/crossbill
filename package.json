@@ -1,7 +1,7 @@
 {
   "name": "shrike-mobile",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Personal iPhone build of the Shrike Bitcoin wallet (BLAKE2b fork, unified sighash), talking to your own Knots node over Tor.",
   "type": "module",
   "scripts": {
@@ -21,6 +21,8 @@
     "@capacitor/status-bar": "8.0.4",
     "@fontsource-variable/atkinson-hyperlegible-mono": "5.3.0",
     "@fontsource-variable/atkinson-hyperlegible-next": "5.3.0",
+    "@fontsource-variable/ibm-plex-sans": "5.3.0",
+    "@fontsource/ibm-plex-mono": "5.3.0",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",
     "@scure/base": "2.4.0",

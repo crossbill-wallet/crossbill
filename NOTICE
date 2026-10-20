@@ -36,5 +36,6 @@ Third-party components built into the app, each under its own license:
   qrcode (Ryan Day)                                MIT
   Atkinson Hyperlegible Next and Mono fonts
     (Braille Institute)                            SIL Open Font License 1.1
+  IBM Plex Sans and Plex Mono fonts (IBM)          SIL Open Font License 1.1
 
 Build and test tools (TypeScript, Vite, Vitest) are not shipped in the app.

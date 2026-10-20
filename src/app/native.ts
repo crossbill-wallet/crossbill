@@ -15,6 +15,8 @@ export interface TorStatus {
 
 export interface NativeHttpRequest {
   url: string;
+  /** POST unless said otherwise. GET sends no body. */
+  method?: 'GET' | 'POST';
   headers: Record<string, string>;
   body: string;
   timeoutMs: number;
@@ -40,6 +42,8 @@ export interface ShrikeNativePlugin {
   scanQr(): Promise<{ value: string | null }>;
   /** Opens a link in Safari, or an onionhttp(s) link in Onion Browser. opened is false if no app takes it. */
   openUrl(opts: { url: string }): Promise<{ opened: boolean }>;
+  /** Copies text that stays on this device (no Universal Clipboard) and clears itself after `seconds`. */
+  copyPrivately(opts: { text: string; seconds: number }): Promise<void>;
   /** Fires when the person takes a screenshot. iOS can't block one, so screens showing seed words warn instead. */
   addListener(eventName: 'screenshot', listener: () => void): Promise<PluginListenerHandle>;
 }

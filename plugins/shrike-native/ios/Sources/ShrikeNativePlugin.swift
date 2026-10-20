@@ -25,6 +25,7 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "biometryType", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "scanQr", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openUrl", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "copyPrivately", returnType: CAPPluginReturnPromise),
     ]
 
     private static let vaultService = "shrike.mobile.vault"
@@ -79,8 +80,12 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.httpBody = (call.getString("body") ?? "").data(using: .utf8)
+        // POST for node RPC; GET for the public price data, which takes no body
+        let method = call.getString("method") ?? "POST"
+        request.httpMethod = method == "GET" ? "GET" : "POST"
+        if request.httpMethod == "POST" {
+            request.httpBody = (call.getString("body") ?? "").data(using: .utf8)
+        }
         request.timeoutInterval = (call.getDouble("timeoutMs") ?? 90_000) / 1000
         request.cachePolicy = .reloadIgnoringLocalCacheData
         if let headers = call.getObject("headers") {
@@ -259,6 +264,22 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
             UIApplication.shared.open(url, options: [:]) { ok in
                 call.resolve(["opened": ok])
             }
+        }
+    }
+
+    // MARK: Clipboard
+
+    /// Copies a secret (a two-factor key, recovery codes) for this device only, so Universal Clipboard never
+    /// hands it to a Mac or iPad, and has iOS clear it after a while.
+    @objc func copyPrivately(_ call: CAPPluginCall) {
+        let text = call.getString("text") ?? ""
+        let seconds = call.getDouble("seconds") ?? 60
+        DispatchQueue.main.async {
+            UIPasteboard.general.setItems(
+                [["public.utf8-plain-text": text]],
+                options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(seconds)]
+            )
+            call.resolve()
         }
     }
 

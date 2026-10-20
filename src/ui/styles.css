@@ -1,22 +1,40 @@
 /* Shrike for iPhone. Palette taken from the desktop app's icon: a black bird with ember edges and a cyan eye.
-   Black carries the balance band and every primary action. Ember is kept for the one thing that must stand out,
-   a transaction that is not replay protected, and for destructive actions. The cyan eye marks protection. */
+   The band carries the balance and every primary action. Ember is kept for the one thing that must stand out,
+   a transaction that is not replay protected, and for destructive actions. The cyan eye marks protection.
+
+   Light or dark comes from data-theme on <html>, set by src/app/look.ts from the Appearance setting (Light, Dark
+   or Match iPhone). Skins (data-skin) change the band only, and every band is dark, so text on it is always
+   light. Fonts (data-font) swap --sans and --mono. */
 
 :root {
-  --ash: #eceeef;
+  --ash: #eef0f1;
   --paper: #ffffff;
-  --ink: #1f2529;
-  --slate: #5e6a71;
-  --rule: #d3d8db;
+  --ink: #1d2327;
+  --slate: #5b676e;
+  --rule: #d5dadd;
+  --ember: #c4402a;
+  --ember-wash: #f8e4e0;
+  --eye: #13899b;
+  --field: #f5f6f7;
+  --focus: #13899b;
+
+  /* The band, until a skin sets it */
   --mask: #000000;
+  --band-bg: #000000;
   --on-mask: #ffffff;
   --on-mask-dim: #a9b3b9;
-  --ember: #c4402a;
-  --ember-wash: #f7e3df;
-  --eye: #1a9fb3;
   --eye-glow: #3fd6e8;
-  --field: #f6f7f8;
-  --focus: #1a9fb3;
+  --band-edge: transparent;
+
+  /* Frozen coins: a cold, faintly crystalline blue */
+  --ice: #e2f2fa;
+  --ice-hi: #f4fbfe;
+  --ice-edge: #8ccbe6;
+  --ice-ink: #1b6683;
+  --ice-shard: #ffffffb3;
+
+  --chart-line: var(--ink);
+  --chart-fill: #1d23270f;
 
   --sans: 'Atkinson Hyperlegible Next Variable', -apple-system, system-ui, sans-serif;
   --mono: 'Atkinson Hyperlegible Mono Variable', ui-monospace, monospace;
@@ -30,23 +48,85 @@
   --t-xxl: 40px;
 
   --pad: 20px;
+  --tabbar-h: 58px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ash: #171b1e;
-    --paper: #20262a;
-    --ink: #e6eaec;
-    --slate: #94a0a7;
-    --rule: #313a3f;
-    --ember: #e0634d;
-    --ember-wash: #3a221e;
-    --eye: #4bd3e6;
-    --field: #262d32;
-  }
+:root[data-theme='dark'] {
+  --ash: #111517;
+  --paper: #1b2124;
+  --ink: #e8ecee;
+  --slate: #97a3aa;
+  --rule: #2c3539;
+  --ember: #e86a53;
+  --ember-wash: #3b211c;
+  --eye: #4fd5e8;
+  --field: #20272b;
+  --focus: #4fd5e8;
+
+  --ice: #10303d;
+  --ice-hi: #163a49;
+  --ice-edge: #3a89a6;
+  --ice-ink: #95dcf3;
+  --ice-shard: #b4ebff17;
+
+  --chart-fill: #e8ecee12;
+  color-scheme: dark;
+}
+
+/* Skins. Each sets the band and the eye's glow; the default is the icon's own black. */
+[data-skin='shrike'] {
+  --mask: #000000;
+  --band-bg: #000000;
+  --on-mask: #ffffff;
+  --on-mask-dim: #a9b3b9;
+  --eye-glow: #3fd6e8;
+  --band-edge: transparent;
+}
+
+[data-skin='redback'] {
+  --mask: #3a160e;
+  --band-bg: linear-gradient(165deg, #52200f 0%, #2a0f08 100%);
+  --on-mask: #fff8f3;
+  --on-mask-dim: #e3c0ae;
+  --eye-glow: #ffb36b;
+  --band-edge: #ff9a5c40;
+}
+
+[data-skin='northern'] {
+  --mask: #0b1626;
+  --band-bg: radial-gradient(120% 90% at 100% 0%, #17544d 0%, #17544d00 58%), radial-gradient(90% 80% at 0% 0%, #22346a 0%, #22346a00 62%), #0b1626;
+  --on-mask: #f3f8ff;
+  --on-mask-dim: #a9bed2;
+  --eye-glow: #7ff0c8;
+  --band-edge: #7ff0c833;
+}
+
+[data-skin='gilded'] {
+  --mask: #110f09;
+  --band-bg: linear-gradient(165deg, #211c11 0%, #0a0905 100%);
+  --on-mask: #fffaf0;
+  --on-mask-dim: #cfc09a;
+  --eye-glow: #e8c46e;
+  --band-edge: #d9b25a8c;
+}
+
+/* Fonts. Atkinson is the default; San Francisco is the iPhone's own; IBM Plex ships with the app. */
+[data-font='atkinson'] {
+  --sans: 'Atkinson Hyperlegible Next Variable', -apple-system, system-ui, sans-serif;
+  --mono: 'Atkinson Hyperlegible Mono Variable', ui-monospace, monospace;
+}
+
+[data-font='system'] {
+  --sans: -apple-system, 'SF Pro Text', system-ui, sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+[data-font='plex'] {
+  --sans: 'IBM Plex Sans Variable', 'IBM Plex Sans', -apple-system, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
 }
 
 * {
@@ -147,17 +227,18 @@ select {
 /* ------------------------------------------------------------ the mask band */
 
 .band {
-  background: var(--mask);
+  background: var(--band-bg);
   color: var(--on-mask);
   padding: calc(var(--safe-top) + 10px) var(--pad) 22px;
   position: relative;
   overflow: hidden;
+  box-shadow: inset 0 -1px 0 var(--band-edge);
 }
 
-/* One fixed-height row: wallet name (shortened to fit, never wrapping), block height, settings */
+/* One fixed-height row: wallet name (shortened to fit, never wrapping) and block height */
 .band .top {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 44px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   height: 44px;
@@ -322,7 +403,16 @@ select {
   white-space: nowrap;
 }
 
+/* The balance is a button: tapping it switches between coins and US dollars */
 .band .balance {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--on-mask);
+  text-align: left;
+  cursor: pointer;
   margin: 8px 0 2px;
   font-family: var(--mono);
   font-size: var(--t-xxl);
@@ -346,6 +436,9 @@ select {
   color: var(--on-mask-dim);
   font-size: var(--t-sm);
   min-height: 1.45em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .band .actions {
@@ -567,11 +660,9 @@ textarea.input {
   width: 100%;
 }
 
-@media (prefers-color-scheme: dark) {
-  .btn.primary {
-    background: var(--ink);
-    color: var(--mask);
-  }
+:root[data-theme='dark'] .btn.primary {
+  background: var(--ink);
+  color: var(--ash);
 }
 
 .btn.secondary {
@@ -1010,7 +1101,7 @@ textarea.input {
 
 .welcome {
   min-height: 100%;
-  background: var(--mask);
+  background: var(--band-bg);
   color: var(--on-mask);
   display: flex;
   flex-direction: column;
@@ -1039,8 +1130,11 @@ textarea.input {
   flex: 1;
 }
 
-/* Fixed white on the black welcome screen in both themes. --paper turns dark in dark mode, which left black text on charcoal */
-.welcome .btn.primary {
+/* Fixed white on the dark welcome and lock screens in both themes. --paper turns dark in dark mode, which left black text on charcoal */
+.welcome .btn.primary,
+:root[data-theme='dark'] .welcome .btn.primary,
+.lock .btn.primary,
+:root[data-theme='dark'] .lock .btn.primary {
   background: #fff;
   color: #000;
 }
@@ -1059,20 +1153,86 @@ textarea.input {
   height: auto;
 }
 
+/* The lock screen picks up from the launch screen: the same black, and the bird at the size and place the
+   launch image puts it (the launch image fills the screen's height, and the bird spans 30.5% of it). */
 .lock {
-  min-height: 100%;
-  background: var(--mask);
+  position: relative;
+  height: 100%;
+  min-height: 100vh;
+  background: #000;
   color: var(--on-mask);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 24px;
-  padding: var(--pad);
+  overflow: hidden;
+}
+
+/* The skin's band fades in behind the bird; for the default skin it's the same black */
+.lock::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--band-bg);
+  animation: fade-in 0.9s ease-out 0.2s both;
 }
 
 .lock img {
-  width: 160px;
+  position: absolute;
+  left: 50%;
+  top: 47.7%;
+  width: min(32.7vh, 86vw);
+  transform: translate(-50%, -50%);
+}
+
+.lock-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(47.7% + min(16.4vh, 43vw) + 14px);
+  text-align: center;
+  font-size: var(--t-sm);
+  font-weight: 700;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+  text-transform: uppercase;
+  color: var(--on-mask-dim);
+  animation: fade-up 0.8s ease-out 0.35s both;
+}
+
+.lock-actions {
+  position: absolute;
+  left: var(--pad);
+  right: var(--pad);
+  bottom: calc(var(--safe-bottom) + 36px);
+  max-width: 360px;
+  margin: 0 auto;
+  display: grid;
+  gap: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.lock-actions.on {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.lock-actions p {
+  margin: 0;
+  text-align: center;
+  color: var(--on-mask-dim);
+  font-size: var(--t-sm);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }
 
 .progress {
@@ -1087,4 +1247,440 @@ textarea.input {
   display: block;
   height: 100%;
   background: var(--eye-glow);
+}
+
+/* ------------------------------------------------------------ tab bar */
+
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 5px 6px calc(var(--safe-bottom) + 3px);
+  background: var(--ash);
+  background: color-mix(in srgb, var(--ash) 94%, transparent);
+  -webkit-backdrop-filter: saturate(1.6) blur(18px);
+  backdrop-filter: saturate(1.6) blur(18px);
+  border-top: 1px solid var(--rule);
+}
+
+.tabbar button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 50px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--slate);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+
+.tabbar button[aria-current='page'] {
+  color: var(--ink);
+}
+
+body.has-tabbar .screen {
+  padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom));
+}
+
+body.has-tabbar .body {
+  padding-bottom: 28px;
+}
+
+/* ------------------------------------------------------------ settings rows and links */
+
+.row.setting,
+.list.flush .row,
+.list.links .row {
+  padding: 12px 0;
+}
+
+.row .go {
+  flex: none;
+  color: var(--slate);
+  opacity: 0.7;
+  display: grid;
+  place-items: center;
+}
+
+.row .meta.wrap {
+  white-space: normal;
+}
+
+.lead {
+  font-size: var(--t-lg);
+  line-height: 1.25;
+  margin: 2px 0 10px;
+}
+
+.prose p {
+  margin: 0 0 12px;
+}
+
+.banner.on-banner {
+  border-color: var(--eye);
+}
+
+/* ------------------------------------------------------------ frozen coins */
+
+.row.frozen {
+  background-color: var(--ice);
+  background-image:
+    linear-gradient(118deg, #0000 0 56%, var(--ice-shard) 56% 57.4%, #0000 57.4% 71%, var(--ice-shard) 71% 71.7%, #0000 71.7%),
+    linear-gradient(62deg, #0000 0 80%, var(--ice-shard) 80% 81.2%, #0000 81.2% 88%, var(--ice-shard) 88% 88.5%, #0000 88.5%),
+    linear-gradient(180deg, var(--ice-hi), #0000 75%);
+  box-shadow: inset 3px 0 0 var(--ice-edge);
+  border-bottom-color: var(--ice-edge);
+}
+
+.row.frozen .title,
+.row.frozen .amt {
+  color: var(--ice-ink);
+}
+
+.row.frozen:active {
+  background-color: var(--ice-hi);
+}
+
+.pill.ice {
+  border-color: var(--ice-edge);
+  color: var(--ice-ink);
+  background: var(--ice-hi);
+}
+
+.pill .snowflake {
+  vertical-align: -1px;
+  margin-right: 2px;
+}
+
+.ice-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ice-edge);
+  border-radius: 10px;
+  background: var(--ice);
+  color: var(--ice-ink);
+  font-size: var(--t-sm);
+}
+
+/* ------------------------------------------------------------ skins and fonts in Appearance */
+
+.skin-choice {
+  align-items: center;
+}
+
+.skin-choice:disabled {
+  cursor: default;
+}
+
+.skin-choice:disabled .what {
+  color: var(--slate);
+}
+
+.swatch {
+  position: relative;
+  flex: none;
+  width: 52px;
+  height: 36px;
+  border-radius: 9px;
+  background: var(--band-bg);
+  box-shadow: inset 0 0 0 1px #ffffff1f;
+  overflow: hidden;
+}
+
+.swatch .glow {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--eye-glow);
+  box-shadow: 0 0 9px var(--eye-glow);
+}
+
+.meter {
+  display: block;
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: var(--rule);
+  overflow: hidden;
+}
+
+.meter span {
+  display: block;
+  height: 100%;
+  background: var(--slate);
+}
+
+.font-sample {
+  display: grid;
+  gap: 2px;
+  font-family: var(--sans);
+}
+
+.font-sample .mono {
+  font-family: var(--mono);
+  color: var(--ink);
+}
+
+.unlock-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px var(--pad) 0;
+  padding: 10px 8px 10px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--paper);
+  font-size: var(--t-sm);
+}
+
+.unlock-banner .text {
+  flex: 1;
+  min-width: 0;
+}
+
+.unlock-banner .swatch {
+  width: 36px;
+  height: 28px;
+}
+
+.unlock-banner .close {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  background: none;
+  color: var(--slate);
+  cursor: pointer;
+}
+
+/* ------------------------------------------------------------ two-factor */
+
+.code-input {
+  font-size: 24px !important;
+  letter-spacing: 0.24em;
+  text-align: center;
+}
+
+.secret {
+  font-size: var(--t-md);
+  line-height: 1.6;
+  word-spacing: 0.2em;
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--paper);
+  overflow-wrap: anywhere;
+}
+
+.recovery-codes {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 14px;
+  margin: 8px 0 16px;
+  padding: 14px;
+  list-style: none;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.recovery-codes li {
+  font-family: var(--mono);
+  font-size: var(--t-md);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------ send and contacts */
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.save-address {
+  margin-top: 24px;
+  padding: 14px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.contact-card {
+  padding: 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+/* ------------------------------------------------------------ market */
+
+.price-card {
+  padding: 16px;
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  background: var(--paper);
+}
+
+.price-card .pair {
+  font-weight: 700;
+  font-size: var(--t-sm);
+}
+
+.price-card .pair span {
+  color: var(--slate);
+  font-weight: 400;
+}
+
+.price-card .price {
+  font-family: var(--mono);
+  font-size: var(--t-xxl);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin: 4px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.price-card .change {
+  font-size: var(--t-sm);
+  color: var(--slate);
+  min-height: 1.45em;
+}
+
+.delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.price-card .source {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: var(--t-xs);
+  color: var(--slate);
+}
+
+.spinner.small {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--rule);
+  border-top-color: var(--slate);
+  animation: spin 0.9s linear infinite;
+}
+
+.chart {
+  margin: 16px 0 18px;
+}
+
+.chart-read {
+  min-height: 1.6em;
+  margin-bottom: 6px;
+  font-size: var(--t-sm);
+}
+
+.chart-box {
+  position: relative;
+  height: 170px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.chart-box svg {
+  display: block;
+  width: 100%;
+  height: 150px;
+  margin-top: 20px;
+  touch-action: none;
+}
+
+.chart-box .line {
+  fill: none;
+  stroke: var(--chart-line);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.chart-box .area {
+  fill: var(--chart-fill);
+}
+
+.chart-box .cursor {
+  stroke: var(--slate);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.chart-box .dot {
+  fill: var(--paper);
+  stroke: var(--chart-line);
+  stroke-width: 2;
+}
+
+.chart-box .axis {
+  position: absolute;
+  right: 0;
+  font-size: 11px;
+  color: var(--slate);
+  pointer-events: none;
+}
+
+.chart-box .axis.top {
+  top: 0;
+}
+
+.chart-box .axis.bottom {
+  bottom: 4px;
+}
+
+.chart-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--slate);
+  font-size: var(--t-sm);
+  text-align: center;
+}
+
+/* A coin's label shortens to fit; its pills never do */
+.row .title.with-pills {
+  display: flex;
+  align-items: center;
+}
+
+.row .title .clip {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row .title .pill {
+  flex: none;
 }

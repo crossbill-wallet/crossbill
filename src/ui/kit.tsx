@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { app, type AppModel } from '../app/model';
 import { isNative, ShrikeNative } from '../app/native';
 import { DECISION_TEXT, decisionSummary, isOptedIn, type ReplayDecision } from '../core/replay';
+import { cleanCode, looksLikeRecoveryCode } from '../core/totp';
 import { formatAmount, unitLabel, type Unit } from '../core/units';
 
 // ------------------------------------------------------------------ app state
@@ -47,16 +48,27 @@ export function ScreenshotWarning() {
 
 // ------------------------------------------------------------------ navigation
 
+/** The four screens on the tab bar. Everything else is pushed on top of one of them. */
+export type TabName = 'home' | 'market' | 'contacts' | 'settings';
+
 export type Route =
   | { name: 'home' }
+  | { name: 'market' }
+  | { name: 'contacts' }
+  | { name: 'settings' }
   | { name: 'receive' }
   | { name: 'send'; address?: string; amount?: number; label?: string; coins?: string[] }
   | { name: 'tx'; txid: string }
   | { name: 'bump'; txid: string; cancel?: boolean }
-  | { name: 'settings' }
   | { name: 'node' }
   | { name: 'add-wallet'; seedFrom?: string }
-  | { name: 'wallet-info'; id: string };
+  | { name: 'wallet-info'; id: string }
+  | { name: 'contact'; id?: string; address?: string; label?: string }
+  | { name: 'two-factor' }
+  | { name: 'appearance' }
+  | { name: 'explorer' }
+  | { name: 'replay' }
+  | { name: 'donate' };
 
 interface Nav {
   stack: Route[];
@@ -137,6 +149,104 @@ export function GearIcon({ size = 26 }: { size?: number }) {
       <path fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" d={GEAR_PATH} />
       <circle cx="12" cy="12" r="3.3" fill="none" stroke="currentColor" strokeWidth="1.8" />
     </svg>
+  );
+}
+
+const ICON = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' } as const;
+
+export function WalletIcon({ size = 26 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...ICON}>
+      <path d="M5.5 7.2 15.6 4.1a1 1 0 0 1 1.27.75L17.3 7" />
+      <rect x="3" y="7" width="18" height="13" rx="2.6" />
+      <path d="M21 11.6h-4.2a1.9 1.9 0 0 0 0 3.8H21" />
+      <circle cx="16.9" cy="13.5" r="0.4" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function MarketIcon({ size = 26 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...ICON}>
+      <path d="M3.5 20.5h17" />
+      <path d="M4 16.2 8.6 11l3.6 3 7.6-8.4" />
+      <path d="M15.3 5.6h4.5v4.5" />
+    </svg>
+  );
+}
+
+export function ContactsIcon({ size = 26 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...ICON}>
+      <rect x="5" y="2.8" width="15" height="18.4" rx="2.4" />
+      <path d="M3 7.5h3.4M3 12h3.4M3 16.5h3.4" />
+      <circle cx="12.6" cy="10" r="2.7" />
+      <path d="M8.6 17c.8-2 2.3-3 4-3s3.2 1 4 3" />
+    </svg>
+  );
+}
+
+const SNOWFLAKE_PATH =
+  'M12 22L12 2M20.66 17L3.34 7M20.66 7L3.34 17M14.9 3.8L12 6.5L9.1 3.8M6.35 5.39L7.24 9.25L3.45 10.41M3.45 13.59L7.24 14.75L6.35 18.61M9.1 20.2L12 17.5L14.9 20.2M17.65 18.61L16.76 14.75L20.55 13.59M20.55 10.41L16.76 9.25L17.65 5.39';
+
+export function Snowflake({ size = 12 }: { size?: number }) {
+  return (
+    <svg className="snowflake" width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+      <path d={SNOWFLAKE_PATH} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+const TABS: { name: TabName; label: string; icon: (p: { size?: number }) => ReactNode }[] = [
+  { name: 'home', label: 'Wallet', icon: WalletIcon },
+  { name: 'market', label: 'Market', icon: MarketIcon },
+  { name: 'contacts', label: 'Contacts', icon: ContactsIcon },
+  { name: 'settings', label: 'Settings', icon: GearIcon },
+];
+
+/**
+ * The tab bar along the bottom of the four main screens. It stays put while the screen above it scrolls, and
+ * gives way to screens pushed on top, such as Send, which have a Back button instead.
+ */
+export function TabBar() {
+  const nav = useNav();
+  const current = nav.stack[0].name;
+  useEffect(() => {
+    document.body.classList.add('has-tabbar');
+    return () => document.body.classList.remove('has-tabbar');
+  }, []);
+  return (
+    <nav className="tabbar" aria-label="Main">
+      {TABS.map((t) => (
+        <button
+          key={t.name}
+          aria-current={current === t.name ? 'page' : undefined}
+          onClick={() => {
+            if (current === t.name) window.scrollTo({ top: 0, behavior: 'smooth' });
+            else nav.reset({ name: t.name });
+          }}
+        >
+          <t.icon size={25} />
+          <span>{t.label}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+/** One row of a settings list: a title, a line under it, and what's on the right. */
+export function Row({ title, meta, end, onClick }: { title: ReactNode; meta?: ReactNode; end?: ReactNode; onClick: () => void }) {
+  return (
+    <button className="row setting" onClick={onClick}>
+      <div className="main">
+        <div className="title">{title}</div>
+        {meta && <div className="meta">{meta}</div>}
+      </div>
+      {end != null && <span className="note">{end}</span>}
+      <span className="go" aria-hidden>
+        <Chevron dir="right" />
+      </span>
+    </button>
   );
 }
 
@@ -223,6 +333,63 @@ export function Field({ label, hint, error, children, htmlFor }: { label: string
   );
 }
 
+/** Whether what was typed has the shape of an authenticator code or a recovery code, so it's worth checking. */
+export function codeReady(v: string): boolean {
+  return /^\d{6}$/.test(cleanCode(v)) || looksLikeRecoveryCode(v);
+}
+
+/**
+ * Where a two-factor code is typed: six digits from the authenticator, or a recovery code instead. iOS offers
+ * a code from the Passwords app above the keyboard when that's where the authenticator lives.
+ */
+export function SecondFactorField({ value, onChange, id = 'otp', autoFocus }: { value: string; onChange: (v: string) => void; id?: string; autoFocus?: boolean }) {
+  const app = useApp();
+  const [recovery, setRecovery] = useState(false);
+  const wait = app.twoFactorWait();
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!wait) return;
+    const t = setInterval(() => tick((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, [wait]);
+  return (
+    <div className="field">
+      <label htmlFor={id}>{recovery ? 'Recovery code' : 'Code from your authenticator'}</label>
+      <input
+        id={id}
+        className="input mono code-input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        inputMode={recovery ? 'text' : 'numeric'}
+        autoComplete="one-time-code"
+        autoCapitalize={recovery ? 'characters' : 'none'}
+        autoCorrect="off"
+        spellCheck={false}
+        maxLength={recovery ? 12 : 7}
+        placeholder={recovery ? 'XXXXX-XXXXX' : '000000'}
+        autoFocus={autoFocus}
+      />
+      <div className={wait ? 'error' : 'hint'}>
+        {wait
+          ? `Too many wrong codes. Try again in ${wait < 90 ? `${wait} seconds` : `${Math.ceil(wait / 60)} minutes`}.`
+          : recovery
+            ? 'Each recovery code works once.'
+            : 'The 6 digits your authenticator shows for Shrike. They change every 30 seconds.'}
+      </div>
+      <button
+        type="button"
+        className="btn quiet"
+        onClick={() => {
+          setRecovery(!recovery);
+          onChange('');
+        }}
+      >
+        {recovery ? 'Use the authenticator instead' : 'Use a recovery code'}
+      </button>
+    </div>
+  );
+}
+
 export function Choice({ checked, onSelect, title, detail }: { checked: boolean; onSelect: () => void; title: string; detail?: ReactNode }) {
   return (
     <button type="button" className="choice" role="radio" aria-checked={checked} onClick={onSelect}>
@@ -274,6 +441,25 @@ export function Qr({ text }: { text: string }) {
     };
   }, [text]);
   return <div className="qr" dangerouslySetInnerHTML={{ __html: svg }} aria-label="QR code" role="img" />;
+}
+
+/** Opens a link in Safari, outside the app's Tor connection. False if nothing opened it. */
+export async function openLink(url: string): Promise<boolean> {
+  const r = await ShrikeNative.openUrl({ url }).catch(() => ({ opened: false }));
+  return r.opened;
+}
+
+/**
+ * Copies a secret (a two-factor key, recovery codes) so it stays on this iPhone, never reaching the Mac or iPad
+ * through Universal Clipboard, and clears itself after `seconds`.
+ */
+export async function copyPrivately(text: string, seconds = 60): Promise<boolean> {
+  try {
+    await ShrikeNative.copyPrivately({ text, seconds });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function copyText(text: string): Promise<boolean> {

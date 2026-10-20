@@ -37,6 +37,18 @@ import {
 import { buildTransaction, BuildError, type Coin, type DraftTransaction, type Payment } from '../core/txbuilder';
 import type { Unit } from '../core/units';
 import { fromHex, toHex } from '../core/bytes';
+import { candlesUrl, parseCandles, parseTicker, tickerUrl, PRICE_MAX_AGE_MS, type Candle, type CandleInterval, type Ticker } from '../core/price';
+import {
+  decodeSecret,
+  hashRecoveryCode,
+  lockoutSeconds,
+  looksLikeRecoveryCode,
+  matchRecoveryCode,
+  newRecoveryCodes,
+  verifyTotp,
+  cleanCode,
+} from '../core/totp';
+import { skinIndex, tierFor, SKINS, type Appearance, type FontId, type SkinId } from './look';
 import { isNative, ShrikeNative } from './native';
 import { readJson, removeJson, writeJson } from './storage';
 
@@ -56,6 +68,53 @@ export interface Settings {
   groupByAddress: boolean;
   /** Block explorer address for transaction links, as in desktop Shrike's settings. null turns the links off. */
   explorer: string | null;
+  appearance: Appearance;
+  skin: SkinId;
+  font: FontId;
+  /** The most skins past the first a confirmed mainnet balance has opened. Never goes down. */
+  skinTier: number;
+  /** Whether the app asks Neoxa Exchange for the XBT price at all, and whether it asks through Tor. */
+  prices: boolean;
+  pricesOverTor: boolean;
+  /** What the balance on the Wallet tab shows: coins, or their worth in US dollars. Tapping it switches. */
+  balanceView: 'coin' | 'usd';
+  /** A code from an authenticator app is needed to send and to show seed words. The key is in the Keychain. */
+  twoFactor: boolean;
+  /** Set once two-factor setup has been offered, so it's offered once and not again. */
+  twoFactorOffered: boolean;
+}
+
+export interface Contact {
+  id: string;
+  name: string;
+  address: string;
+  network: NetworkName;
+  note?: string;
+  createdAt: number;
+  lastUsed?: number;
+}
+
+export interface PriceState {
+  ticker: Ticker | null;
+  /** unix ms of the last good answer */
+  at: number;
+  error: string | null;
+  loading: boolean;
+}
+
+interface TwoFactorRecord {
+  secret: string;
+  /** SHA-256 hashes of the recovery codes; a used one is emptied */
+  recovery: string[];
+  /** The last time step a code was accepted for, so no code works twice */
+  lastStep: number | null;
+  createdAt: number;
+}
+
+interface TwoFactorAttempts {
+  failures: number;
+  /** Seconds of lockout still to wait when this was saved. They count down only while the app is open */
+  remaining: number;
 }
 
 export interface WalletConfig {
@@ -101,10 +160,29 @@ interface WalletFile {
 
 const SETTINGS_FILE = 'settings.json';
 const WALLETS_FILE = 'wallets.json';
+const CONTACTS_FILE = 'contacts.json';
+const TWO_FACTOR_ATTEMPTS_FILE = 'two-factor-attempts.json';
 const RPC_PASSWORD_KEY = 'rpc-password';
+const TWO_FACTOR_KEY = 'two-factor';
 const seedKey = (id: string) => `seed:${id}`;
 
-const DEFAULT_SETTINGS: Settings = { network: 'mainnet', node: null, unit: 'BTC', lockOnOpen: true, groupByAddress: true, explorer: DEFAULT_EXPLORER };
+const DEFAULT_SETTINGS: Settings = {
+  network: 'mainnet',
+  node: null,
+  unit: 'BTC',
+  lockOnOpen: true,
+  groupByAddress: true,
+  explorer: DEFAULT_EXPLORER,
+  appearance: 'system',
+  skin: 'shrike',
+  font: 'atkinson',
+  skinTier: 0,
+  prices: true,
+  pricesOverTor: true,
+  balanceView: 'coin',
+  twoFactor: false,
+  twoFactorOffered: false,
+};
 
 export interface RescanChoice {
   kind: 'new' | 'date' | 'full' | 'existing';
@@ -135,6 +213,20 @@ export class AppModel {
   fees: Record<number, number> | null = null;
   ready = false;
   locked = false;
+  contacts: Contact[] = [];
+  price: PriceState = { ticker: null, at: 0, error: null, loading: false };
+  /** Recovery codes still unused, while two-factor is on */
+  recoveryLeft = 0;
+  /** New recovery codes not yet confirmed as saved. Kept here so locking the app doesn't lose them */
+  pendingRecoveryCodes: string[] | null = null;
+  /** A skin a sync just opened, for the Wallet tab to mention once */
+  newSkin: SkinId | null = null;
+  private failures = 0;
+  /** performance.now() when the current lockout ends. Not the wall clock, which can be set forward */
+  private lockDeadline = 0;
+  /** Code checks run one at a time, so two can't both accept the same code */
+  private twoFactorQueue: Promise<unknown> = Promise.resolve();
+  private priceReq: Promise<void> | null = null;
 
   private rpc: KnotsRpc | null = null;
   private listeners = new Set<() => void>();
@@ -162,19 +254,27 @@ export class AppModel {
   async init(): Promise<void> {
     const s = await readJson<Settings>(SETTINGS_FILE);
     if (s) this.settings = { ...DEFAULT_SETTINGS, ...s };
-    const configs = (await readJson<WalletConfig[]>(WALLETS_FILE)) ?? [];
+    const savedConfigs = await readJson<WalletConfig[]>(WALLETS_FILE);
+    const configs = savedConfigs ?? [];
     for (const c of configs) {
       const file = await readJson<WalletFile>(`wallet-${c.id}.json`);
       this.wallets.push(this.runtimeFor(c, file));
     }
     this.activeId = this.wallets.find((w) => w.config.network === this.settings.network)?.config.id ?? null;
     for (const w of this.wallets) if (w.store.mine.length) this.recompute(w);
+    this.contacts = (await readJson<Contact[]>(CONTACTS_FILE)) ?? [];
+    const attempts = await readJson<Partial<TwoFactorAttempts>>(TWO_FACTOR_ATTEMPTS_FILE);
+    this.failures = attempts?.failures ?? 0;
+    this.lockDeadline = performance.now() + (attempts?.remaining ?? 0) * 1000;
+    await this.syncTwoFactorFlag(s == null && savedConfigs == null);
     this.locked = this.settings.lockOnOpen && this.wallets.length > 0 && isNative;
     this.ready = true;
     this.emit();
     CapApp.addListener('appStateChange', ({ isActive }) => {
       if (!isActive) {
         this.backgroundedAt = Date.now();
+        // A lockout counts down only while the app is open; save what's left in case iOS ends the app
+        if (this.twoFactorWait() > 0) void this.saveAttempts();
       } else {
         const away = this.backgroundedAt ? Date.now() - this.backgroundedAt : 0;
         this.backgroundedAt = null;
@@ -396,7 +496,39 @@ export class AppModel {
       this.fees = null;
     }
     this.conn = { phase: 'ready', lastSync: Date.now() };
+    await this.checkSkinTier();
     this.emit();
+  }
+
+  /** Opens skins as the confirmed mainnet balance across the phone's wallets passes each threshold. */
+  private async checkSkinTier(): Promise<void> {
+    if (this.settings.network !== 'mainnet') return;
+    const total = this.wallets.filter((w) => w.config.network === 'mainnet').reduce((s, w) => s + (w.snapshot?.balance.confirmed ?? 0), 0);
+    const tier = tierFor(total);
+    if (tier > this.settings.skinTier) {
+      this.newSkin = SKINS[tier].id;
+      await this.updateSettings({ skinTier: tier });
+    }
+  }
+
+  /** Whether a skin can be picked. On test networks every skin is open to try, since their coins have no value. */
+  skinOpen(id: SkinId): boolean {
+    return this.settings.network !== 'mainnet' || skinIndex(id) <= this.settings.skinTier;
+  }
+
+  /** The skin in use: the one picked, if it's open. */
+  get skin(): SkinId {
+    return this.skinOpen(this.settings.skin) ? this.settings.skin : 'shrike';
+  }
+
+  dismissNewSkin(): void {
+    this.newSkin = null;
+    this.emit();
+  }
+
+  /** Confirmed balance of the current network's wallets together. */
+  totalConfirmed(): number {
+    return this.networkWallets().reduce((s, w) => s + (w.snapshot?.balance.confirmed ?? 0), 0);
   }
 
   private async syncWallet(rpc: KnotsRpc, w: WalletRuntime): Promise<void> {
@@ -538,8 +670,22 @@ export class AppModel {
     this.emit();
   }
 
-  /** Reads the seed words, behind Face ID, for showing them again. */
-  async revealSeed(id: string, prompt = 'Show the seed words'): Promise<{ mnemonic: string; passphrase: string } | null> {
+  /** Reads the seed words, behind Face ID, to show them. With two-factor on, a code is needed first. */
+  async revealSeed(id: string, code?: string): Promise<{ mnemonic: string; passphrase: string } | null> {
+    await this.checkSecondFactor(code);
+    return this.readSeed(id, 'Show the seed words');
+  }
+
+  /**
+   * Reads a wallet's seed words to open them with another passphrase. They aren't shown, but they're the seed
+   * words, so two-factor guards this as it guards showing them.
+   */
+  async seedForPassphraseWallet(id: string, code?: string): Promise<{ mnemonic: string; passphrase: string } | null> {
+    await this.checkSecondFactor(code);
+    return this.readSeed(id, 'Use the seed words with a passphrase');
+  }
+
+  private async readSeed(id: string, prompt: string): Promise<{ mnemonic: string; passphrase: string } | null> {
     const res = await ShrikeNative.vaultGet({ key: seedKey(id), prompt });
     return res.value ? JSON.parse(res.value) : null;
   }
@@ -553,6 +699,16 @@ export class AppModel {
   freshReceive(w: WalletRuntime): { address: string; index: number } {
     const index = (w.snapshot?.highestUsed[0] ?? -1) + 1;
     return { address: this.addressAt(w, 0, index), index };
+  }
+
+  /** Whether an address belongs to one of the wallets on this phone. */
+  isOwnAddress(address: string): boolean {
+    try {
+      const script = toHex(decodeAddress(address, this.net).scriptPubKey);
+      return this.networkWallets().some((w) => w.index.find(script) != null);
+    } catch {
+      return false;
+    }
   }
 
   addressAt(w: WalletRuntime, chain: 0 | 1, index: number): string {
@@ -651,9 +807,13 @@ export class AppModel {
     });
   }
 
-  /** Asks for Face ID, signs, broadcasts and labels. Returns the txid. */
-  async signAndBroadcast(w: WalletRuntime, draft: DraftTransaction, label?: string, replaces?: string): Promise<SignedTransaction> {
+  /**
+   * Checks the two-factor code if it's on, asks for Face ID, signs, broadcasts and labels. Returns the txid.
+   * Sends, fee raises and cancels all come through here.
+   */
+  async signAndBroadcast(w: WalletRuntime, draft: DraftTransaction, label?: string, replaces?: string, code?: string): Promise<SignedTransaction> {
     if (draft.unified !== this.replayOptIn()) throw new Error('Replay protection changed since this was built. Go back and review it again.');
+    await this.checkSecondFactor(code);
     const rpc = await this.getRpc();
     // Every coin must still be unspent. A replacement's coins are spent by the transaction it replaces, so for
     // those only the confirmed UTXO set is asked; for a normal send the mempool counts too.
@@ -675,6 +835,7 @@ export class AppModel {
     const txLabel = label ?? draft.outputs.map((o) => o.payment?.label).filter(Boolean).join(', ');
     if (txLabel) w.labels.set('tx', signed.txid, txLabel);
     await this.saveWallet(w);
+    await this.touchContacts(draft.outputs.map((o) => o.payment?.address).filter((a): a is string => !!a));
     this.emit();
     void this.refresh();
     return signed;
@@ -704,6 +865,263 @@ export class AppModel {
     this.emit();
     return n;
   }
+
+  // ------------------------------------------------------------------------------------------- address book
+
+  /** Saved addresses for the current network, the most recently paid first. */
+  networkContacts(): Contact[] {
+    return this.contacts
+      .filter((c) => c.network === this.settings.network)
+      .sort((a, b) => (b.lastUsed ?? 0) - (a.lastUsed ?? 0) || a.name.localeCompare(b.name));
+  }
+
+  contactFor(address: string): Contact | undefined {
+    const a = address.trim();
+    return this.contacts.find((c) => c.network === this.settings.network && c.address === a);
+  }
+
+  /** Adds or changes a saved address. The address must be valid on the current network. */
+  async saveContact(input: { id?: string; name: string; address: string; note?: string }): Promise<Contact> {
+    const name = input.name.trim();
+    const address = input.address.trim();
+    if (!name) throw new Error('Give it a name');
+    decodeAddress(address, this.net);
+    const same = this.contacts.find((c) => c.network === this.settings.network && c.address === address && c.id !== input.id);
+    if (same) throw new Error(`This address is already saved as ${same.name}`);
+    const existing = input.id ? this.contacts.find((c) => c.id === input.id) : undefined;
+    const contact: Contact = existing
+      ? { ...existing, name, address, note: input.note?.trim() || undefined }
+      : { id: randomId(), name, address, network: this.settings.network, note: input.note?.trim() || undefined, createdAt: Date.now() };
+    this.contacts = existing ? this.contacts.map((c) => (c.id === contact.id ? contact : c)) : [...this.contacts, contact];
+    await writeJson(CONTACTS_FILE, this.contacts);
+    this.emit();
+    return contact;
+  }
+
+  async deleteContact(id: string): Promise<void> {
+    this.contacts = this.contacts.filter((c) => c.id !== id);
+    await writeJson(CONTACTS_FILE, this.contacts);
+    this.emit();
+  }
+
+  private async touchContacts(addresses: string[]): Promise<void> {
+    let changed = false;
+    for (const a of addresses) {
+      const c = this.contactFor(a);
+      if (c) {
+        c.lastUsed = Date.now();
+        changed = true;
+      }
+    }
+    if (changed) await writeJson(CONTACTS_FILE, this.contacts);
+  }
+
+  // ------------------------------------------------------------------------------------------- price
+
+  /** Gets the XBT/USDC price, unless the last answer is under a minute old. Errors land in price.error. */
+  loadPrice(force = false): Promise<void> {
+    if (!this.settings.prices) return Promise.resolve();
+    if (!force && this.price.ticker && Date.now() - this.price.at < PRICE_MAX_AGE_MS) return Promise.resolve();
+    if (this.priceReq) return this.priceReq;
+    this.price = { ...this.price, loading: true };
+    this.emit();
+    this.priceReq = (async () => {
+      try {
+        const res = await this.publicGet(tickerUrl());
+        this.price = { ticker: parseTicker(res.body, res.status), at: Date.now(), error: null, loading: false };
+      } catch (e) {
+        this.price = { ...this.price, error: friendlyError(e), loading: false };
+      } finally {
+        this.priceReq = null;
+        this.emit();
+      }
+    })();
+    return this.priceReq;
+  }
+
+  async loadCandles(interval: CandleInterval, limit: number): Promise<Candle[]> {
+    const res = await this.publicGet(candlesUrl(interval, limit));
+    return parseCandles(res.body, res.status);
+  }
+
+  /** A read-only request to a public site, through Tor when the price setting says so. */
+  private async publicGet(url: string): Promise<{ status: number; body: string }> {
+    const useTor = this.settings.pricesOverTor && isNative;
+    if (useTor) {
+      const s = await ShrikeNative.torStatus();
+      if (s.state !== 'ready') {
+        await ShrikeNative.torStart();
+        await this.waitForTor(120_000);
+      }
+    }
+    try {
+      return await ShrikeNative.httpRequest({ url, method: 'GET', headers: { Accept: 'application/json' }, body: '', timeoutMs: 45_000, useTor });
+    } catch (e) {
+      throw new Error(`Couldn’t reach Neoxa Exchange${useTor ? ' through Tor' : ''}. ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------- two-factor
+  //
+  // The Keychain item is the record of whether two-factor is on; settings.twoFactor mirrors it for the screens.
+  // A code is used up the moment it's accepted, before the action it allows runs, so a send or a seed reveal that
+  // fails or is cancelled afterwards doesn't leave a working code behind.
+
+  /** The two-factor record, or null if there's none. Throws if the Keychain can't be read, so checks fail closed. */
+  private async readTwoFactorOrNull(): Promise<TwoFactorRecord | null> {
+    const { value } = await ShrikeNative.vaultGet({ key: TWO_FACTOR_KEY, prompt: 'Check the code' });
+    return value ? (JSON.parse(value) as TwoFactorRecord) : null;
+  }
+
+  private async writeTwoFactor(r: TwoFactorRecord): Promise<void> {
+    // Kept on this device only. Reading it needs no Face ID: the code itself is the second factor
+    await ShrikeNative.vaultSet({ key: TWO_FACTOR_KEY, value: JSON.stringify(r), requireAuth: false });
+    this.recoveryLeft = r.recovery.filter(Boolean).length;
+  }
+
+  /**
+   * At launch: sets settings.twoFactor from the Keychain, so a settings file that's lost or unreadable can't
+   * switch two-factor off. On a fresh install, a record left in the Keychain by an earlier install (iOS keeps
+   * Keychain items when an app is deleted) is removed.
+   */
+  private async syncTwoFactorFlag(freshInstall: boolean): Promise<void> {
+    let r: TwoFactorRecord | null;
+    try {
+      r = await this.readTwoFactorOrNull();
+    } catch {
+      return;
+    }
+    if (freshInstall) {
+      if (r) await ShrikeNative.vaultDelete({ key: TWO_FACTOR_KEY });
+      r = null;
+    }
+    this.recoveryLeft = r ? r.recovery.filter(Boolean).length : 0;
+    if ((r != null) !== this.settings.twoFactor) {
+      this.settings = { ...this.settings, twoFactor: r != null };
+      await writeJson(SETTINGS_FILE, this.settings);
+    }
+  }
+
+  private serial<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.twoFactorQueue.then(task, task);
+    this.twoFactorQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  /** Turns two-factor on once the person shows their authenticator gives the right code. Returns the recovery codes. */
+  enableTwoFactor(secretB32: string, code: string): Promise<string[]> {
+    return this.serial(async () => {
+      if (await this.readTwoFactorOrNull()) throw new Error('Two-factor is already on');
+      const step = verifyTotp(decodeSecret(secretB32), code, Date.now() / 1000);
+      if (step == null) {
+        throw new Error('That code doesn’t match. Check the authenticator shows the Shrike entry you just added, and that this iPhone sets its clock automatically.');
+      }
+      const codes = newRecoveryCodes();
+      await this.writeTwoFactor({ secret: secretB32, recovery: codes.map(hashRecoveryCode), lastStep: step, createdAt: Date.now() });
+      this.pendingRecoveryCodes = codes;
+      await this.updateSettings({ twoFactor: true });
+      return codes;
+    });
+  }
+
+  /** The person has saved the recovery codes on screen. */
+  acknowledgeRecoveryCodes(): void {
+    this.pendingRecoveryCodes = null;
+    this.emit();
+  }
+
+  /** Seconds left before another code can be tried, after too many wrong ones. */
+  twoFactorWait(): number {
+    return Math.max(0, Math.ceil((this.lockDeadline - performance.now()) / 1000));
+  }
+
+  private saveAttempts(): Promise<void> {
+    return writeJson(TWO_FACTOR_ATTEMPTS_FILE, { failures: this.failures, remaining: this.twoFactorWait() } satisfies TwoFactorAttempts);
+  }
+
+  /**
+   * With two-factor on, checks a code from the authenticator, or a recovery code, and uses it up. Throws if
+   * it's missing or wrong. With two-factor off, does nothing.
+   */
+  checkSecondFactor(code: string | undefined): Promise<void> {
+    return this.serial(async () => {
+      const r = await this.readTwoFactorOrNull();
+      if (!r) {
+        if (this.settings.twoFactor) throw new Error('The two-factor key is no longer in this iPhone’s Keychain. Close the app and open it again.');
+        return;
+      }
+      const text = (code ?? '').trim();
+      if (!text) throw new Error('Enter the code from your authenticator app');
+      const wait = this.twoFactorWait();
+      if (wait > 0) throw new Error(`Too many wrong codes. Try again in ${wait < 90 ? `${wait} seconds` : `${Math.ceil(wait / 60)} minutes`}.`);
+      let ok = false;
+      if (looksLikeRecoveryCode(text)) {
+        const i = matchRecoveryCode(r.recovery, text);
+        if (i >= 0) {
+          r.recovery[i] = '';
+          ok = true;
+        }
+      } else {
+        const step = verifyTotp(decodeSecret(r.secret), cleanCode(text), Date.now() / 1000, r.lastStep);
+        if (step != null) {
+          r.lastStep = Math.max(r.lastStep ?? 0, step);
+          ok = true;
+        }
+      }
+      if (!ok) {
+        this.failures++;
+        this.lockDeadline = performance.now() + lockoutSeconds(this.failures) * 1000;
+        await this.saveAttempts();
+        this.emit();
+        throw new Error(
+          looksLikeRecoveryCode(text)
+            ? 'That recovery code doesn’t match one that’s still unused.'
+            : 'That code doesn’t match, or it was used already. Wait for the authenticator to show the next one.',
+        );
+      }
+      // Used up before the action it allows runs
+      await this.writeTwoFactor(r);
+      if (this.failures) {
+        this.failures = 0;
+        this.lockDeadline = 0;
+        await this.saveAttempts();
+      }
+      this.emit();
+    });
+  }
+
+  /** Turns two-factor off. Needs a code or a recovery code. */
+  async disableTwoFactor(code: string): Promise<void> {
+    await this.checkSecondFactor(code);
+    await ShrikeNative.vaultDelete({ key: TWO_FACTOR_KEY });
+    this.recoveryLeft = 0;
+    await this.updateSettings({ twoFactor: false });
+  }
+
+  /** Replaces the recovery codes with a new set. Needs a code from the authenticator or a recovery code. */
+  async replaceRecoveryCodes(code: string): Promise<string[]> {
+    await this.checkSecondFactor(code);
+    return this.serial(async () => {
+      const r = await this.readTwoFactorOrNull();
+      if (!r) throw new Error('Two-factor is off');
+      const codes = newRecoveryCodes();
+      r.recovery = codes.map(hashRecoveryCode);
+      await this.writeTwoFactor(r);
+      this.pendingRecoveryCodes = codes;
+      this.emit();
+      return codes;
+    });
+  }
+
+  async twoFactorSince(): Promise<number | null> {
+    try {
+      return (await this.readTwoFactorOrNull())?.createdAt ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------- transaction labels
 
   txLabel(w: WalletRuntime, t: WalletTx): string | undefined {
     const own = w.labels.get('tx', t.txid);

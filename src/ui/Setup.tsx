@@ -7,7 +7,7 @@ import { friendlyError, type NodeSettings, type RescanChoice } from '../app/mode
 import { isOptedIn } from '../core/replay';
 import { nodeAddressFields } from '../core/rpc';
 import { seedWordsFeedback, WORD_COUNTS } from '../core/seedwords';
-import { Choice, Field, ReplayStatus, Screen, ScreenshotWarning, Toggle, useApp, useNav, useScreenshotAlert } from './kit';
+import { Choice, Field, ReplayStatus, Screen, ScreenshotWarning, SecondFactorField, Toggle, codeReady, useApp, useNav, useScreenshotAlert } from './kit';
 
 export function Welcome({ onStart }: { onStart: () => void }) {
   return (
@@ -192,6 +192,7 @@ export function AddWallet({ back = true, onDone, seedFrom }: { back?: boolean; o
   const [name, setName] = useState(source ? `${source.config.name} (passphrase)` : app.wallets.length ? `Wallet ${app.wallets.length + 1}` : 'My wallet');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [code, setCode] = useState('');
   const shot = useScreenshotAlert(step === 'words' || step === 'new' || step === 'verify');
 
   // The last word counts as finished after a pause, so a pasted seed is judged without needing a trailing space
@@ -269,15 +270,16 @@ export function AddWallet({ back = true, onDone, seedFrom }: { back?: boolean; o
           <input id="pp2" className="input" type="password" value={passphrase2} onChange={(e) => setPassphrase2(e.target.value)} autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="off" />
         </Field>
         <div className="banner">Write the passphrase on the same paper as the seed words. Coins in this wallet can only be recovered with both, by anyone, including you.</div>
+        {app.settings.twoFactor && <SecondFactorField value={code} onChange={setCode} id="otp-pass" />}
         {error && <div className="banner error">{error}</div>}
         <button
           className="btn primary"
-          disabled={!ok || busy}
+          disabled={!ok || busy || (app.settings.twoFactor && !codeReady(code))}
           onClick={async () => {
             setBusy(true);
             setError(null);
             try {
-              const s = await app.revealSeed(source.config.id, 'Use the seed words with a passphrase');
+              const s = await app.seedForPassphraseWallet(source.config.id, app.settings.twoFactor ? code : undefined);
               if (!s) throw new Error('The seed words for this wallet are no longer on this phone.');
               if (s.passphrase === passphrase) throw new Error(`That’s the passphrase ${source.config.name} already uses.`);
               setFromSeed(s.mnemonic);
@@ -292,6 +294,7 @@ export function AddWallet({ back = true, onDone, seedFrom }: { back?: boolean; o
               setStep('type');
             } catch (e) {
               setError(friendlyError(e));
+              setCode('');
             } finally {
               setBusy(false);
             }

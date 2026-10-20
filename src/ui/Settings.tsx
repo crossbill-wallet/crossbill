@@ -6,37 +6,44 @@ import { DEFAULT_EXPLORER, normalizeExplorer } from '../core/explorer';
 import { DECISION_TEXT, decisionSummary } from '../core/replay';
 import { friendlyError } from '../app/model';
 import { isNative } from '../app/native';
-import { Amount, Choice, Field, ReplayStatus, Screen, ScreenshotWarning, Toggle, copyText, useApp, useNav, useScreenshotAlert } from './kit';
+import { FONTS, SKINS } from '../app/look';
+import { APP_REPO, DONATION_ADDRESS } from '../app/links';
+import {
+  Address,
+  Amount,
+  Choice,
+  Field,
+  Qr,
+  ReplayStatus,
+  Row,
+  Screen,
+  ScreenshotWarning,
+  SecondFactorField,
+  Sheet,
+  Toggle,
+  codeReady,
+  copyText,
+  openLink,
+  useApp,
+  useNav,
+  useScreenshotAlert,
+} from './kit';
 
 export function Settings() {
   const app = useApp();
   const nav = useNav();
   const node = app.settings.node;
   const decision = app.replayDecision();
+  const skin = SKINS.find((x) => x.id === app.skin)!;
+  const font = FONTS.find((x) => x.id === app.settings.font)!;
+  const explorer = app.settings.explorer;
   return (
-    <Screen title="Settings">
+    <Screen title="Settings" back={false}>
       <div className="section-title" style={{ marginTop: 4 }}>
-        Node
+        Wallets
       </div>
-      <button className="row" style={{ padding: '12px 0' }} onClick={() => nav.push({ name: 'node' })}>
-        <div className="main">
-          <div className="title mono" style={{ fontWeight: 400, fontSize: 'var(--t-sm)' }}>
-            {node ? `${node.host.length > 26 ? node.host.slice(0, 14) + '…' + node.host.slice(-10) : node.host}:${node.port}` : 'Not set up'}
-          </div>
-          <div className="meta">
-            {app.settings.network === 'mainnet' ? 'Mainnet' : app.settings.network === 'testnet4' ? 'Testnet4' : 'Regtest'}
-            {node?.useTor ? ', through Tor' : ''}
-            {app.node ? `, ${app.node.subversion.replace(/^\/|\/$/g, '')}` : ''}
-          </div>
-        </div>
-        <span className="note">Change</span>
-      </button>
-
-      <ExplorerSetting />
-
-      <div className="section-title">Wallets</div>
       {app.networkWallets().map((w) => (
-        <button key={w.config.id} className="row" style={{ padding: '12px 0' }} onClick={() => nav.push({ name: 'wallet-info', id: w.config.id })}>
+        <button key={w.config.id} className="row setting" onClick={() => nav.push({ name: 'wallet-info', id: w.config.id })}>
           <div className="main">
             <div className="title">{w.config.name}</div>
             <div className="meta">{SCRIPT_TYPE_INFO[w.config.scriptType].label}</div>
@@ -50,7 +57,178 @@ export function Settings() {
         Add a wallet
       </button>
 
-      <div className="section-title">Replay protection</div>
+      <div className="section-title">Security</div>
+      <Row title="Two-factor" meta={app.settings.twoFactor ? 'A code is needed to send and to show seed words' : 'Off. Sends need Face ID only'} end={app.settings.twoFactor ? 'On' : 'Off'} onClick={() => nav.push({ name: 'two-factor' })} />
+      <Toggle label="Ask for Face ID to open" detail="And again after a minute away. Signing always asks." checked={app.settings.lockOnOpen} onChange={(v) => void app.updateSettings({ lockOnOpen: v })} />
+
+      <div className="section-title">Look</div>
+      <Row
+        title="Appearance"
+        meta={`${app.settings.appearance === 'system' ? 'Matches iPhone' : app.settings.appearance === 'dark' ? 'Dark' : 'Light'}, ${skin.name} skin, ${font.name}`}
+        onClick={() => nav.push({ name: 'appearance' })}
+      />
+      <div className="field" style={{ margin: '14px 0 0' }}>
+        <span className="label">Amounts in</span>
+        <div className="segmented" role="group" aria-label="Amounts in">
+          <button aria-pressed={app.settings.unit === 'BTC'} onClick={() => void app.updateSettings({ unit: 'BTC' })}>
+            BTC
+          </button>
+          <button aria-pressed={app.settings.unit === 'sats'} onClick={() => void app.updateSettings({ unit: 'sats' })}>
+            sats
+          </button>
+        </div>
+      </div>
+      <Toggle
+        label="XBT price"
+        detail="From Neoxa Exchange, for the Market tab and the dollar balance. Asks for the price only, never for anything about your wallets."
+        checked={app.settings.prices}
+        onChange={(v) => void app.updateSettings({ prices: v, ...(v ? {} : { balanceView: 'coin' as const }) })}
+      />
+      {app.settings.prices && (
+        <Toggle
+          label="Get the price through Tor"
+          detail="So the exchange doesn’t see this iPhone’s IP address. Turn off if the price won’t load through Tor."
+          checked={app.settings.pricesOverTor}
+          onChange={(v) => void app.updateSettings({ pricesOverTor: v })}
+        />
+      )}
+
+      <div className="section-title">Node</div>
+      <Row
+        title={<span className="mono" style={{ fontWeight: 400, fontSize: 'var(--t-sm)' }}>{node ? `${node.host.length > 26 ? node.host.slice(0, 14) + '…' + node.host.slice(-10) : node.host}:${node.port}` : 'Not set up'}</span>}
+        meta={
+          <>
+            {app.settings.network === 'mainnet' ? 'Mainnet' : app.settings.network === 'testnet4' ? 'Testnet4' : 'Regtest'}
+            {node?.useTor ? ', through Tor' : ''}
+            {app.node ? `, ${app.node.subversion.replace(/^\/|\/$/g, '')}` : ''}
+          </>
+        }
+        onClick={() => nav.push({ name: 'node' })}
+      />
+      <Row title="Block explorer" meta={explorer == null ? 'None' : explorer === DEFAULT_EXPLORER ? 'mempool.guide' : explorer.replace(/^https?:\/\//, '')} onClick={() => nav.push({ name: 'explorer' })} />
+      <Row title="Replay protection" meta={decisionSummary(decision)} onClick={() => nav.push({ name: 'replay' })} />
+
+      <div className="section-title">Spending</div>
+      <Toggle
+        label="Spend whole addresses together"
+        detail="When an address holds several coins, they are spent at once so the address is never left partly spent."
+        checked={app.settings.groupByAddress}
+        onChange={(v) => void app.updateSettings({ groupByAddress: v })}
+      />
+
+      {DONATION_ADDRESS && (
+        <>
+          <div className="section-title">Support this app</div>
+          <Row title="Donate XBT" meta="Help keep Shrike for iPhone going" onClick={() => nav.push({ name: 'donate' })} />
+        </>
+      )}
+
+      <p className="note" style={{ marginTop: 28 }}>
+        Shrike for iPhone {__APP_VERSION__}. A personal build of the Shrike wallet, an unofficial fork of Sparrow. Not audited. Apache 2.0.
+      </p>
+      <button className="btn quiet" onClick={() => void openLink(APP_REPO)}>
+        Code and releases on GitHub
+      </button>
+    </Screen>
+  );
+}
+
+/** Light or dark, the skin, and the font. */
+export function Appearance() {
+  const app = useApp();
+  const held = app.totalConfirmed();
+  const mainnet = app.settings.network === 'mainnet';
+  const unit = app.settings.unit;
+  const threshold = (sats: number) => (unit === 'sats' ? `${sats.toLocaleString('en-US')} sats` : `${sats / 1e8} BTC`);
+  return (
+    <Screen title="Appearance">
+      <div className="field">
+        <span className="label">Light or dark</span>
+        <div className="segmented" role="group" aria-label="Light or dark">
+          {(
+            [
+              ['light', 'Light'],
+              ['dark', 'Dark'],
+              ['system', 'Match iPhone'],
+            ] as const
+          ).map(([v, label]) => (
+            <button key={v} aria-pressed={app.settings.appearance === v} onClick={() => void app.updateSettings({ appearance: v })}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="section-title">Skin</div>
+      <p className="note" style={{ marginTop: 0 }}>
+        {mainnet
+          ? 'More skins open as the wallets on this phone hold more, counting confirmed coins. Once open, a skin stays open.'
+          : 'On a test network every skin is open to try. On mainnet they open as your confirmed balance grows.'}
+      </p>
+      {SKINS.map((k) => {
+        const open = app.skinOpen(k.id);
+        const progress = Math.min(1, held / (k.minSats || 1));
+        return (
+          <button key={k.id} type="button" className="choice skin-choice" role="radio" aria-checked={app.skin === k.id} aria-disabled={!open} disabled={!open} onClick={() => void app.updateSettings({ skin: k.id })}>
+            <span className="swatch" data-skin={k.id} aria-hidden>
+              <span className="glow" />
+            </span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span className="what">{k.name}</span>
+              <div className="why">{open ? k.detail : `Opens at ${threshold(k.minSats)}`}</div>
+              {!open && (
+                <span className="meter" aria-label={`${Math.floor(progress * 100)}% of the way`}>
+                  <span style={{ width: `${progress * 100}%` }} />
+                </span>
+              )}
+            </span>
+            {!open && <LockGlyph />}
+          </button>
+        );
+      })}
+      <p className="note">A skin hints at what you hold to anyone who sees your screen.</p>
+
+      <div className="section-title">Font</div>
+      {FONTS.map((f) => (
+        <Choice
+          key={f.id}
+          checked={app.settings.font === f.id}
+          onSelect={() => void app.updateSettings({ font: f.id })}
+          title={f.name}
+          detail={
+            <span className="font-sample" data-font={f.id}>
+              <span className="sans">{f.detail}</span>
+              <span className="mono">0.12 345 678 BTC</span>
+            </span>
+          }
+        />
+      ))}
+    </Screen>
+  );
+}
+
+function LockGlyph() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden style={{ flex: 'none', color: 'var(--slate)', marginTop: 2 }}>
+      <rect x="5" y="10.5" width="14" height="10" rx="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M8.5 10.5V7.8a3.5 3.5 0 0 1 7 0v2.7" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+export function ExplorerScreen() {
+  return (
+    <Screen title="Block explorer">
+      <ExplorerSetting />
+    </Screen>
+  );
+}
+
+export function ReplayScreen() {
+  const app = useApp();
+  const decision = app.replayDecision();
+  return (
+    <Screen title="Replay protection">
       <ReplayStatus decision={decision} />
       <dl className="facts">
         <div>
@@ -67,29 +245,39 @@ export function Settings() {
         </div>
       </dl>
       {!DECISION_TEXT[decision].reason && <p className="note">{decisionSummary(decision)} whenever this wallet signs, with no setting to change.</p>}
+    </Screen>
+  );
+}
 
-      <div className="section-title">Display</div>
-      <div className="segmented" role="group" aria-label="Amounts in">
-        <button aria-pressed={app.settings.unit === 'BTC'} onClick={() => void app.updateSettings({ unit: 'BTC' })}>
-          BTC
+/** Settings, Support this app. Only listed when the build has a donation address. */
+export function Donate() {
+  const app = useApp();
+  const nav = useNav();
+  const [copied, setCopied] = useState(false);
+  const mainnet = app.settings.network === 'mainnet';
+  return (
+    <Screen title="Donate">
+      <p style={{ marginTop: 0 }}>Shrike for iPhone is free and built in spare time. If it’s useful to you, a donation in XBT helps keep it going. Thank you.</p>
+      <Qr text={`bitcoin:${DONATION_ADDRESS}`} />
+      <div style={{ textAlign: 'center', marginBottom: 16 }}>
+        <Address value={DONATION_ADDRESS} />
+      </div>
+      <div style={{ display: 'grid', gap: 10 }}>
+        <button className="btn primary" disabled={!mainnet} onClick={() => nav.push({ name: 'send', address: DONATION_ADDRESS, label: 'Donation to Shrike for iPhone' })}>
+          Send from {app.active?.config.name ?? 'this wallet'}
         </button>
-        <button aria-pressed={app.settings.unit === 'sats'} onClick={() => void app.updateSettings({ unit: 'sats' })}>
-          sats
+        <button
+          className="btn secondary"
+          onClick={async () => {
+            setCopied(await copyText(DONATION_ADDRESS));
+            setTimeout(() => setCopied(false), 1500);
+          }}
+        >
+          {copied ? 'Copied' : 'Copy address'}
         </button>
       </div>
-
-      <div className="section-title">Security and spending</div>
-      <Toggle label="Ask for Face ID to open" detail="And again after a minute away. Signing always asks." checked={app.settings.lockOnOpen} onChange={(v) => void app.updateSettings({ lockOnOpen: v })} />
-      <Toggle
-        label="Spend whole addresses together"
-        detail="When an address holds several coins, they are spent at once so the address is never left partly spent."
-        checked={app.settings.groupByAddress}
-        onChange={(v) => void app.updateSettings({ groupByAddress: v })}
-      />
-
-      <p className="note" style={{ marginTop: 28 }}>
-        Shrike for iPhone {__APP_VERSION__}. A personal build of the Shrike wallet, an unofficial fork of Sparrow. Not audited. Apache 2.0.
-      </p>
+      {!mainnet && <p className="note">Switch to your mainnet node to donate. This address is on mainnet.</p>}
+      <p className="note">Donations are voluntary and buy nothing: the app is the same with or without one.</p>
     </Screen>
   );
 }
@@ -117,7 +305,6 @@ function ExplorerSetting() {
 
   return (
     <>
-      <div className="section-title">Block explorer</div>
       <Choice
         checked={picked === 'default'}
         onSelect={() => {
@@ -171,6 +358,10 @@ export function WalletInfo({ id }: { id: string }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [code, setCode] = useState('');
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const shot = useScreenshotAlert(seed != null);
   if (!w) return <Screen title="Wallet">{null}</Screen>;
@@ -274,6 +465,12 @@ export function WalletInfo({ id }: { id: string }) {
           className="btn secondary"
           style={{ width: '100%' }}
           onClick={async () => {
+            if (app.settings.twoFactor) {
+              setCode('');
+              setCodeError(null);
+              setAsking(true);
+              return;
+            }
             try {
               setSeed(await app.revealSeed(id));
             } catch (e) {
@@ -283,6 +480,35 @@ export function WalletInfo({ id }: { id: string }) {
         >
           Show seed words
         </button>
+      )}
+      {asking && (
+        <Sheet title="Show seed words" onClose={() => setAsking(false)}>
+          <p className="note" style={{ marginTop: 0 }}>
+            Two-factor is on, so showing the seed words needs a code first, then Face ID.
+          </p>
+          <SecondFactorField value={code} onChange={setCode} id="otp-seed" autoFocus />
+          {codeError && <div className="banner error">{codeError}</div>}
+          <button
+            className="btn primary"
+            disabled={busy || !codeReady(code)}
+            onClick={async () => {
+              setBusy(true);
+              setCodeError(null);
+              try {
+                const s = await app.revealSeed(id, code);
+                setAsking(false);
+                setSeed(s);
+              } catch (e) {
+                setCodeError(friendlyError(e));
+                setCode('');
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Continue
+          </button>
+        </Sheet>
       )}
 
       <div className="section-title">Passphrase</div>
