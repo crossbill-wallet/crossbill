@@ -1326,6 +1326,18 @@ body.has-tabbar .body {
   margin: 0 0 12px;
 }
 
+/* Numbered how-to steps, as on the Widgets screen */
+.steps {
+  margin: 0 0 16px;
+  padding-left: 22px;
+  font-size: var(--t-sm);
+}
+
+.steps li {
+  margin-bottom: 10px;
+  padding-left: 2px;
+}
+
 .banner.on-banner {
   border-color: var(--eye);
 }

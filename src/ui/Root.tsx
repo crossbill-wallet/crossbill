@@ -12,6 +12,7 @@ import { Bump, TxDetail } from './Tx';
 import { Appearance, Donate, ExplorerScreen, ReplayScreen, Settings, WalletInfo } from './Settings';
 import { AddWallet, NodeForm, Welcome } from './Setup';
 import { RecoveryCodes, TwoFactorScreen, TwoFactorSetup } from './TwoFactor';
+import { WidgetsScreen } from './Widgets';
 
 /** When the page started, so the first lock screen after launch can hold the bird a little longer. */
 const BOOT = Date.now();
@@ -121,13 +122,31 @@ function Current({ route }: { route: Route }) {
       return <ReplayScreen />;
     case 'donate':
       return <Donate />;
+    case 'widgets':
+      return <WidgetsScreen />;
   }
+}
+
+/**
+ * A tapped widget opens the app on its tab. If a screen is open on top of a tab, such as a send being written,
+ * the app stays where it is rather than lose it.
+ */
+function useWidgetLinks() {
+  const app = useApp();
+  const nav = useNav();
+  const want = app.pendingTab;
+  useEffect(() => {
+    if (!want) return;
+    const tab = app.takePendingTab();
+    if (tab && nav.stack.length === 1 && nav.stack[0].name !== tab) nav.reset({ name: tab });
+  }, [want, app, nav]);
 }
 
 function Stack() {
   const nav = useNav();
   const route = nav.stack[nav.stack.length - 1];
   useStatusBar(route.name === 'home');
+  useWidgetLinks();
   return (
     <>
       <Current route={route} />

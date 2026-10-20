@@ -1,7 +1,7 @@
 {
   "name": "shrike-mobile",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Personal iPhone build of the Shrike Bitcoin wallet (BLAKE2b fork, unified sighash), talking to your own Knots node over Tor.",
   "type": "module",
   "scripts": {
@@ -9,7 +9,8 @@
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "ios:sync": "npm run build && npx cap sync ios",
+    "ios:sync": "npm run build && npx cap sync ios && node scripts/ios-widgets.mjs",
+    "ios:widgets": "node scripts/ios-widgets.mjs",
     "ios:open": "npx cap open ios"
   },
   "dependencies": {

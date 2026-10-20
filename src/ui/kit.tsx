@@ -68,7 +68,8 @@ export type Route =
   | { name: 'appearance' }
   | { name: 'explorer' }
   | { name: 'replay' }
-  | { name: 'donate' };
+  | { name: 'donate' }
+  | { name: 'widgets' };
 
 interface Nav {
   stack: Route[];

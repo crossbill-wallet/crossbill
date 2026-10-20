@@ -1,5 +1,24 @@
 # Changes
 
+## 0.2.2
+
+New:
+
+- **Widgets for the Home Screen and the Lock Screen.** Two of them:
+  - **XBT price:** the last price from Neoxa Exchange, the 24-hour change, and on the Home Screen the day's chart.
+  - **Balance:** a wallet's balance in BTC or sats, whichever the app is set to, with its worth in US dollars on mainnet.
+- Each comes as a small square or a wide rectangle on the Home Screen, and as a round or a rectangular widget on the Lock Screen. The price widget looks like the Market tab's price card, in light or dark. The balance widget looks like the Wallet tab's band, in the skin you picked.
+- Widgets can't run Tor, so they never go online themselves. They show what Shrike last got through Tor, with the time it got it, and change whenever Shrike is open: it fetches the price for a price widget when it opens and every five minutes while it stays open. A price over an hour old is shown dimmed.
+- **Settings, Widgets** shows what the widgets have now and which ones are on your screens. Choose which wallet the Balance widget shows, or keep the balance out of the widgets altogether.
+- Tapping a widget opens Shrike on the Market or Wallet tab.
+
+Changed:
+
+- `npm run ios:sync` also runs `scripts/ios-widgets.mjs`, which adds the widget extension to the Xcode project the first time and keeps its bundle ID, team and version matched to the app's. The app and the widgets share an App Group named after the app's bundle ID. Nothing else in the project file changes.
+- The app registers the `shrike://` link scheme, for widget taps. It opens the Market or Wallet tab and nothing else.
+
+After updating from 0.2.1, run `npm install` and `npm run ios:sync`, then in Xcode check that the new **ShrikeWidgets** target has your team under Signing & Capabilities.
+
 ## 0.2.1
 
 Fixed:

@@ -3,7 +3,7 @@
 // None of this ships in the iPhone build, where the Swift plugin answers instead.
 
 import { WebPlugin } from '@capacitor/core';
-import type { NativeHttpRequest, ShrikeNativePlugin, TorHealth, TorRepairResult, TorStatus } from './native';
+import type { NativeHttpRequest, ShrikeNativePlugin, TorHealth, TorRepairResult, TorStatus, WidgetTrouble } from './native';
 
 const memoryVault = new Map<string, string>();
 
@@ -122,5 +122,42 @@ export class ShrikeNativeWeb extends WebPlugin implements ShrikeNativePlugin {
 
   async openUrl(opts: { url: string }): Promise<{ opened: boolean }> {
     return { opened: window.open(opts.url, '_blank', 'noopener') != null };
+  }
+
+  /**
+   * Widgets exist only on the iPhone. For checking the Widgets screen in a browser, localStorage
+   * 'shrike.devWidgets' can list pretend ones, such as ["ShrikePrice:systemSmall"]; what the app would hand
+   * them is kept in 'shrike.widgetSnapshot'.
+   */
+  async widgetsUpdate(opts: { snapshot: string | null }): Promise<{ ok: boolean; reason?: WidgetTrouble }> {
+    const pretend = devWidgets();
+    try {
+      if (opts.snapshot == null) localStorage.removeItem('shrike.widgetSnapshot');
+      else localStorage.setItem('shrike.widgetSnapshot', opts.snapshot);
+    } catch {
+      // storage refused
+    }
+    return pretend ? { ok: true } : { ok: false, reason: 'web' };
+  }
+
+  async widgetsInstalled(): Promise<{ ok: boolean; reason?: WidgetTrouble; widgets: { kind: string; family: string }[] }> {
+    const pretend = devWidgets();
+    if (!pretend) return { ok: false, reason: 'web', widgets: [] };
+    return {
+      ok: true,
+      widgets: pretend.map((w) => {
+        const [kind, family] = w.split(':');
+        return { kind, family };
+      }),
+    };
+  }
+}
+
+function devWidgets(): string[] | null {
+  try {
+    const v = localStorage.getItem('shrike.devWidgets');
+    return v ? (JSON.parse(v) as string[]) : null;
+  } catch {
+    return null;
   }
 }

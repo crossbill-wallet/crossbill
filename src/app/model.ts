@@ -37,7 +37,7 @@ import {
 import { buildTransaction, BuildError, type Coin, type DraftTransaction, type Payment } from '../core/txbuilder';
 import type { Unit } from '../core/units';
 import { fromHex, toHex } from '../core/bytes';
-import { candlesUrl, parseCandles, parseTicker, tickerUrl, PriceError, PRICE_MAX_AGE_MS, type Candle, type CandleInterval, type Ticker } from '../core/price';
+import { candlesUrl, parseCandles, parseTicker, tickerUrl, CHART_RANGES, PriceError, PRICE_MAX_AGE_MS, type Candle, type CandleInterval, type Ticker } from '../core/price';
 import {
   decodeSecret,
   hashRecoveryCode,
@@ -51,6 +51,14 @@ import {
 import { skinIndex, tierFor, SKINS, type Appearance, type FontId, type SkinId } from './look';
 import { errorKind, isNative, ShrikeNative, type TorHealth } from './native';
 import { readJson, removeJson, writeJson } from './storage';
+import {
+  buildWidgetSnapshot,
+  CHART_FAMILIES,
+  PRICE_WIDGET,
+  WIDGET_CHART_MAX_AGE_MS,
+  type WidgetInput,
+  type WidgetSnapshot,
+} from './widgets';
 
 export interface NodeSettings {
   host: string;
@@ -82,7 +90,24 @@ export interface Settings {
   twoFactor: boolean;
   /** Set once two-factor setup has been offered, so it's offered once and not again. */
   twoFactorOffered: boolean;
+  /** Whether the Balance widget shows the balance. Off, it says the balance is hidden. */
+  widgetBalance: boolean;
+  /** The wallet the Balance widget shows. null means the first one on this network, the one the app opens to. */
+  widgetWallet: string | null;
 }
+
+/** The iPhone widgets as the app sees them, for the Widgets screen in Settings. */
+export interface WidgetState {
+  /** ok: they get what the app hands them. no-app-group: this build can't share with them. web: not an iPhone */
+  status: 'unknown' | 'ok' | 'no-app-group' | 'web';
+  /** The Shrike widgets on the Home Screen and Lock Screen */
+  installed: { kind: string; family: string }[];
+  /** unix ms the app last handed the widgets something new */
+  sentAt: number;
+}
+
+/** Tabs a widget can open the app on. */
+export type LinkTab = 'home' | 'market';
 
 export interface Contact {
   id: string;
@@ -206,6 +231,12 @@ const SETTINGS_FILE = 'settings.json';
 const WALLETS_FILE = 'wallets.json';
 const CONTACTS_FILE = 'contacts.json';
 const TWO_FACTOR_ATTEMPTS_FILE = 'two-factor-attempts.json';
+/** What the widgets were last handed, so a restart neither blanks the price nor rewrites them for nothing */
+const WIDGETS_FILE = 'widgets.json';
+/** The Market chart's one-day range, which is also what the price widget draws */
+const DAY_CHART = CHART_RANGES[0];
+/** While the app is open and past Face ID, how often the price is fetched again for a price widget */
+const WIDGET_PRICE_EVERY_MS = 5 * 60_000;
 const RPC_PASSWORD_KEY = 'rpc-password';
 const TWO_FACTOR_KEY = 'two-factor';
 const seedKey = (id: string) => `seed:${id}`;
@@ -226,6 +257,8 @@ const DEFAULT_SETTINGS: Settings = {
   balanceView: 'coin',
   twoFactor: false,
   twoFactorOffered: false,
+  widgetBalance: true,
+  widgetWallet: null,
 };
 
 export interface RescanChoice {
@@ -277,6 +310,16 @@ export class AppModel {
   /** Code checks run one at a time, so two can't both accept the same code */
   private twoFactorQueue: Promise<unknown> = Promise.resolve();
   private priceReq: Promise<void> | null = null;
+  widgets: WidgetState = { status: 'unknown', installed: [], sentAt: 0 };
+  /** A tab a widget asked to open, for the screens to go to once Face ID has opened the app */
+  pendingTab: LinkTab | null = null;
+  private widgetLast: WidgetSnapshot | null = null;
+  private widgetJson = '';
+  private widgetTimer: ReturnType<typeof setTimeout> | null = null;
+  private widgetQueue: Promise<void> = Promise.resolve();
+  /** The day's closing prices, for the price widget's chart */
+  private dayChart: { closes: number[]; at: number } | null = null;
+  private dayChartReq: Promise<void> | null = null;
 
   private rpc: KnotsRpc | null = null;
   private listeners = new Set<() => void>();
@@ -297,6 +340,7 @@ export class AppModel {
   private emit(): void {
     this.version++;
     for (const l of this.listeners) l();
+    this.queueWidgets();
   }
 
   // ------------------------------------------------------------------------------------------- startup
@@ -317,9 +361,21 @@ export class AppModel {
     this.failures = attempts?.failures ?? 0;
     this.lockDeadline = performance.now() + (attempts?.remaining ?? 0) * 1000;
     await this.syncTwoFactorFlag(s == null && savedConfigs == null);
+    this.widgetLast = await readJson<WidgetSnapshot>(WIDGETS_FILE);
+    this.widgetJson = this.widgetLast ? JSON.stringify(this.widgetLast) : '';
+    const day = this.widgetLast?.price;
+    if (day?.points && day.pointsAt) this.dayChart = { closes: day.points, at: day.pointsAt };
     this.locked = this.settings.lockOnOpen && this.wallets.length > 0 && isNative;
     this.ready = true;
     this.emit();
+    CapApp.addListener('appUrlOpen', ({ url }) => this.openLink(url)).catch(() => undefined);
+    CapApp.getLaunchUrl()
+      .then((r) => r?.url && this.openLink(r.url))
+      .catch(() => undefined);
+    void this.checkWidgets();
+    setInterval(() => {
+      if (!this.backgroundedAt && !this.locked) void this.priceForWidgets();
+    }, WIDGET_PRICE_EVERY_MS);
     CapApp.addListener('appStateChange', ({ isActive }) => {
       if (!isActive) {
         this.backgroundedAt = Date.now();
@@ -335,6 +391,8 @@ export class AppModel {
           if (this.settings.node) void this.refresh();
           if (this.priceWatchers > 0) void this.loadPrice(true);
         }
+        // Widgets may have been added or removed while the app was away
+        void this.checkWidgets();
       }
     }).catch(() => undefined);
     if (!this.locked && this.settings.node) void this.connect();
@@ -347,6 +405,7 @@ export class AppModel {
       this.emit();
       if (this.settings.node) void (this.rpc ? this.refresh() : this.connect());
       if (this.priceWatchers > 0) void this.loadPrice(true);
+      else void this.priceForWidgets();
     }
     return res.ok;
   }
@@ -742,7 +801,9 @@ export class AppModel {
     await removeJson(`wallet-${id}.json`);
     this.wallets = this.wallets.filter((w) => w.config.id !== id);
     if (this.activeId === id) this.activeId = this.networkWallets()[0]?.config.id ?? null;
+    if (this.settings.widgetWallet === id) this.settings = { ...this.settings, widgetWallet: null };
     await this.saveWalletList();
+    await writeJson(SETTINGS_FILE, this.settings);
     this.emit();
   }
 
@@ -1025,6 +1086,7 @@ export class AppModel {
     this.priceReq = this.runPriceLoad(how).finally(() => {
       this.priceReq = null;
       this.emit();
+      void this.chartForWidgets();
     });
     return this.priceReq;
   }
@@ -1200,7 +1262,13 @@ export class AppModel {
 
   async loadCandles(interval: CandleInterval, limit: number): Promise<Candle[]> {
     const res = await this.publicGet(candlesUrl(interval, limit));
-    return parseCandles(res.body, res.status);
+    const candles = parseCandles(res.body, res.status);
+    // The Market tab's one-day chart is what the price widget draws too
+    if (interval === DAY_CHART.interval && limit === DAY_CHART.limit && candles.length >= 2) {
+      this.dayChart = { closes: candles.map((c) => c.close), at: Date.now() };
+      this.queueWidgets();
+    }
+    return candles;
   }
 
   /**
@@ -1222,6 +1290,132 @@ export class AppModel {
     } catch (e) {
       throw new Error(`Couldn’t reach Neoxa Exchange${useTor ? ' through Tor' : ''}. ${e instanceof Error ? e.message : String(e)}`);
     }
+  }
+
+  // ------------------------------------------------------------------------------------------- widgets
+  //
+  // Widgets can't run Tor, so they show what the app last got: the price and one wallet's balance, with the time.
+  // Every change to the app's state queues a fresh snapshot; it's handed over only when something on it changed.
+
+  /** What the widgets were last handed. */
+  get widgetSnapshot(): WidgetSnapshot | null {
+    return this.widgetLast;
+  }
+
+  /** The wallet the Balance widget shows: the one picked in Settings, or the first on this network. */
+  widgetWallet(): WalletRuntime | null {
+    const list = this.networkWallets();
+    return list.find((w) => w.config.id === this.settings.widgetWallet) ?? list[0] ?? null;
+  }
+
+  /** Whether a price widget is on the Home Screen or Lock Screen, so the price is worth fetching for it. */
+  private priceWidgetShown(): boolean {
+    return this.widgets.installed.some((w) => w.kind === PRICE_WIDGET);
+  }
+
+  private widgetInput(): WidgetInput {
+    const w = this.widgetWallet();
+    const bal = w?.snapshot?.balance;
+    return {
+      appearance: this.settings.appearance,
+      skin: this.skin,
+      unit: this.settings.unit,
+      network: this.settings.network,
+      prices: this.settings.prices,
+      showBalance: this.settings.widgetBalance,
+      ticker: this.price.ticker,
+      priceAt: this.price.at,
+      chart: this.dayChart,
+      wallet: w && bal ? { id: w.config.id, name: w.config.name, confirmed: bal.confirmed, unconfirmed: bal.unconfirmed } : null,
+      syncedAt: this.conn.lastSync ?? null,
+      now: Date.now(),
+    };
+  }
+
+  private queueWidgets(): void {
+    if (!this.ready || this.widgetTimer) return;
+    this.widgetTimer = setTimeout(() => {
+      this.widgetTimer = null;
+      void this.sendWidgets();
+    }, 400);
+  }
+
+  /** Hands the widgets a new snapshot if anything on it changed. One at a time, in order. */
+  sendWidgets(): Promise<void> {
+    const run = this.widgetQueue.then(async () => {
+      const snap = buildWidgetSnapshot(this.widgetInput(), this.widgetLast);
+      const json = JSON.stringify(snap);
+      if (json === this.widgetJson) return;
+      this.widgetJson = json;
+      this.widgetLast = snap;
+      let status: WidgetState['status'] = this.widgets.status;
+      try {
+        const r = await ShrikeNative.widgetsUpdate({ snapshot: json });
+        status = r.ok ? 'ok' : (r.reason ?? 'no-app-group');
+      } catch {
+        status = isNative ? 'no-app-group' : 'web';
+      }
+      await writeJson(WIDGETS_FILE, snap).catch(() => undefined);
+      const changed = status !== this.widgets.status;
+      this.widgets = { ...this.widgets, status, sentAt: status === 'ok' ? Date.now() : this.widgets.sentAt };
+      if (changed) this.emit();
+    });
+    this.widgetQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  /** Asks iOS which Shrike widgets are on screen. A price widget gets the price fetched for it. */
+  async checkWidgets(): Promise<void> {
+    try {
+      const r = await ShrikeNative.widgetsInstalled();
+      const status: WidgetState['status'] = r.ok ? 'ok' : (r.reason ?? 'no-app-group');
+      const installed = r.widgets ?? [];
+      if (status !== this.widgets.status || JSON.stringify(installed) !== JSON.stringify(this.widgets.installed)) {
+        this.widgets = { ...this.widgets, status, installed };
+        this.emit();
+      }
+    } catch {
+      if (this.widgets.status === 'unknown') {
+        this.widgets = { ...this.widgets, status: isNative ? 'no-app-group' : 'web' };
+        this.emit();
+      }
+    }
+    if (!this.locked) await this.priceForWidgets();
+  }
+
+  /** Fetches the price for a price widget, unless the last one is under a minute old. Quiet, like a refresh. */
+  priceForWidgets(): Promise<void> {
+    if (!this.settings.prices || !this.priceWidgetShown()) return Promise.resolve();
+    return this.loadPrice();
+  }
+
+  /** Fetches the day's chart for a price widget that draws one, at most every fifteen minutes. */
+  private chartForWidgets(): Promise<void> {
+    if (!this.settings.prices || !this.price.ticker || this.dayChartReq) return this.dayChartReq ?? Promise.resolve();
+    if (!this.widgets.installed.some((w) => w.kind === PRICE_WIDGET && CHART_FAMILIES.has(w.family))) return Promise.resolve();
+    if (this.dayChart && Date.now() - this.dayChart.at < WIDGET_CHART_MAX_AGE_MS) return Promise.resolve();
+    this.dayChartReq = this.loadCandles(DAY_CHART.interval, DAY_CHART.limit)
+      .then(() => undefined)
+      .catch(() => undefined)
+      .finally(() => {
+        this.dayChartReq = null;
+      });
+    return this.dayChartReq;
+  }
+
+  /** A widget was tapped: shrike://market or shrike://wallet. Anything else is ignored. */
+  openLink(url: string): void {
+    const m = /^shrike:\/\/(market|wallet)\/?$/i.exec(url.trim());
+    if (!m) return;
+    this.pendingTab = m[1].toLowerCase() === 'market' ? 'market' : 'home';
+    this.emit();
+  }
+
+  /** The tab a widget asked for, once. */
+  takePendingTab(): LinkTab | null {
+    const t = this.pendingTab;
+    this.pendingTab = null;
+    return t;
   }
 
   // ------------------------------------------------------------------------------------------- two-factor

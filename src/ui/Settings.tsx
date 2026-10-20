@@ -93,6 +93,12 @@ export function Settings() {
         />
       )}
 
+      <Row
+        title="Widgets"
+        meta={`XBT price and balance${app.widgets.installed.length ? `, ${app.widgets.installed.length} on your screens` : ' for the Home Screen and Lock Screen'}`}
+        onClick={() => nav.push({ name: 'widgets' })}
+      />
+
       <div className="section-title">Node</div>
       <Row
         title={<span className="mono" style={{ fontWeight: 400, fontSize: 'var(--t-sm)' }}>{node ? `${node.host.length > 26 ? node.host.slice(0, 14) + '…' + node.host.slice(-10) : node.host}:${node.port}` : 'Not set up'}</span>}

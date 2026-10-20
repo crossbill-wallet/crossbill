@@ -45,6 +45,9 @@ export function errorKind(e: unknown): NativeErrorKind | undefined {
   return code === 'refused' || code === 'timeout' || code === 'offline' || code === 'network' ? code : undefined;
 }
 
+/** Why the widgets can't be handed anything: the build has no App Group, or this is the browser stand-in. */
+export type WidgetTrouble = 'no-app-group' | 'web';
+
 export interface NativeHttpRequest {
   url: string;
   /** POST unless said otherwise. GET sends no body. */
@@ -82,6 +85,13 @@ export interface ShrikeNativePlugin {
   openUrl(opts: { url: string }): Promise<{ opened: boolean }>;
   /** Copies text that stays on this device (no Universal Clipboard) and clears itself after `seconds`. */
   copyPrivately(opts: { text: string; seconds: number }): Promise<void>;
+  /**
+   * Hands the widgets what to show (a WidgetSnapshot as JSON, or nothing to clear it) and asks iOS to redraw
+   * them. ok is false with reason "no-app-group" when this build has no App Group to share with the widgets.
+   */
+  widgetsUpdate(opts: { snapshot: string | null }): Promise<{ ok: boolean; reason?: WidgetTrouble }>;
+  /** The Shrike widgets on the Home Screen and Lock Screen right now, and whether the App Group is set up. */
+  widgetsInstalled(): Promise<{ ok: boolean; reason?: WidgetTrouble; widgets: { kind: string; family: string }[] }>;
   /** Fires when the person takes a screenshot. iOS can't block one, so screens showing seed words warn instead. */
   addListener(eventName: 'screenshot', listener: () => void): Promise<PluginListenerHandle>;
 }

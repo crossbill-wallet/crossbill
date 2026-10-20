@@ -40,6 +40,7 @@ If the script stops with a message, it says what to do. Follow it and run `./set
 2. Open **Xcode, Settings, Accounts**, click **+**, and sign in with your Apple ID.
 3. In the left sidebar, click **App** (the blue icon at the top). Under Targets, click **App**, then the **Signing & Capabilities** tab.
 4. Tick **Automatically manage signing** and choose your Apple ID under **Team** (it says Personal Team for a free account).
+5. Under Targets, click **ShrikeWidgets** (the widgets) and choose the same team there.
 
 Red errors such as "Your team has no devices" or "No profiles for ..." are normal at this point. They clear once your iPhone is connected in step 4.
 
@@ -49,7 +50,7 @@ Red errors such as "Your team has no devices" or "No profiles for ..." are norma
 2. At the top of the Xcode window, click the device name (it may say Any iOS Device) and choose your iPhone. The first time, Xcode spends a minute or two preparing it.
 3. Back in Signing & Capabilities, click **Try Again** if errors are still showing.
 4. Turn on **Developer Mode** on the iPhone: Settings, Privacy & Security, Developer Mode (at the bottom). The iPhone restarts; unlock it and tap Turn On. If Developer Mode isn't listed, press Run in Xcode once and it appears.
-5. Press **Run** (the play button at the top left).
+5. At the top of the window, check **App** is chosen next to your iPhone's name (not ShrikeWidgets), then press **Run** (the play button at the top left).
 6. If the iPhone says **Untrusted Developer**, go to Settings, General, VPN & Device Management, tap your Apple ID, and tap Trust. Then press Run again.
 
 Yellow warnings in Xcode come from the libraries the app uses and can be ignored. A red error stops the build: copy its text when asking for help.
@@ -89,6 +90,15 @@ Right after the first wallet, the app offers two-factor: a 6-digit code from an 
 3. Type the 6-digit code it shows and tap **Turn on two-factor**.
 4. Write the eight recovery codes on the paper with your seed words. Each works once in place of a code if you lose the authenticator.
 
+### Widgets (optional)
+
+Shrike has two widgets, **XBT price** and **Balance**, for the Home Screen and the Lock Screen.
+
+- **Home Screen:** touch and hold an empty spot, tap **Edit**, then **Add Widget**. Search for Shrike, pick one, swipe to the size you want and tap **Add Widget**.
+- **Lock Screen:** touch and hold the Lock Screen, tap **Customize**, then **Lock Screen**, tap the row of widgets under the clock and pick a Shrike widget.
+
+Widgets can't run Tor, so they show what Shrike last got through it, with the time, and change when you open Shrike. Settings, Widgets chooses the wallet the Balance widget shows, or keeps the balance out of widgets. Anyone who sees your iPhone can read a widget, on the Lock Screen too. To have iOS hide the Lock Screen balance until Face ID recognizes you, turn off **Lock Screen Widgets** in the iPhone's Settings, Face ID & Passcode, under Allow Access When Locked.
+
 ## Step 7: Check it with a small amount
 
 1. Compare the balance and the first receive address with Shrike on your computer.
@@ -117,6 +127,10 @@ Right after the first wallet, the app offers two-factor: a 6-digit code from an 
 | "That code doesn't match" when turning on two-factor or sending | Set the iPhone's clock automatically (Settings, General, Date & Time), and the authenticator's device too. Codes change every 30 seconds; wait for a fresh one. |
 | The Market tab says "Couldn't reach Neoxa Exchange through Tor" | The app tries new routes by itself and shows each step. If it keeps failing, tap **Get it once without Tor**, or turn off **Get the price through Tor** in Settings. |
 | "Tor on this iPhone stopped responding" | Close Shrike (swipe it away in the app switcher) and open it again. |
+| Signing errors that name **ShrikeWidgets**, or an App Group | In Signing & Capabilities, choose your team for the ShrikeWidgets target too, then click Try Again. Or close Xcode, run `npm run ios:widgets` in this folder, and open it again. |
+| "Failed to show Widget" or "Could not attach to pid" right after a successful build | Xcode ran the widgets on their own. At the top of the window, change **ShrikeWidgets** next to your iPhone's name to **App**, then press Run. The widgets install with the app. |
+| A widget says "Open Shrike to show ..." | Open Shrike once. If Settings, Widgets says the App Group isn't set up, run `npm run ios:sync` and press Run again. |
+| A widget shows an old price | Widgets can't fetch the price themselves. Open Shrike; with a price widget on screen it fetches the price as it opens. |
 | The wallet isn't found on the node | This version supports the standard account 0 paths only: m/84'/0'/0', m/86'/0'/0', m/49'/0'/0' and m/44'/0'/0'. Check the derivation in desktop Shrike (the wallet's Settings, Keystore). |
 
 ## Making it your own

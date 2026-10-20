@@ -16,5 +16,5 @@ Pod::Spec.new do |s|
   s.dependency 'Capacitor'
   # Embedded C Tor (tor 0.4.9.x) from iCepa/Tor.framework, the library Onion Browser uses
   s.dependency 'Tor', '~> 409.14'
-  s.frameworks = 'VisionKit', 'LocalAuthentication', 'Security', 'AVFoundation', 'UIKit'
+  s.frameworks = 'VisionKit', 'LocalAuthentication', 'Security', 'AVFoundation', 'UIKit', 'WidgetKit'
 end

@@ -59,7 +59,7 @@ SPEC CHECKSUMS:
   CapacitorShare: 5b5e53347556bee89ae6163ed20b5b3c25fe75f1
   CapacitorStatusBar: ff844df1f126da6c4fbc4028272425fa3a91e7e3
   IONFilesystemLib: 306469e4c563f61de82d7bca2bbfed9e64d1b2d2
-  ShrikeNative: 98d8291504f9c493fb354bd36131b465a8d57746
+  ShrikeNative: e5c12658a0686758501af97bf868d5e40c80d9dc
   Tor: 885bab50ebad5e6580f7b05b0df623aebfc598cb
 
 PODFILE CHECKSUM: 0abbb411d3c1d2b3f2acf234b0a4f845e5aa4dcd

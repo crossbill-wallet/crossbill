@@ -4,6 +4,7 @@ import LocalAuthentication
 import Security
 import UIKit
 import AVFoundation
+import WidgetKit
 
 /// The app's one native plugin. Called from src/app/native.ts as ShrikeNative.
 ///
@@ -28,6 +29,8 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "scanQr", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openUrl", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "copyPrivately", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "widgetsUpdate", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "widgetsInstalled", returnType: CAPPluginReturnPromise),
     ]
 
     private static let vaultService = "shrike.mobile.vault"
@@ -313,6 +316,73 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(seconds)]
             )
             call.resolve()
+        }
+    }
+
+    // MARK: Widgets
+
+    /// Where the widgets read what the app hands them: a file in the App Group the app shares with its widget
+    /// extension, named "group." and the app's bundle ID (ios/App/ShrikeWidgets/Snapshot.swift reads the same
+    /// path). nil when this build has no such App Group, which iOS reports by giving no container.
+    private static func widgetFile() -> URL? {
+        guard let id = Bundle.main.bundleIdentifier,
+              let dir = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.\(id)") else { return nil }
+        return dir.appendingPathComponent("Library/Application Support/Widgets", isDirectory: true)
+            .appendingPathComponent("snapshot.json", isDirectory: false)
+    }
+
+    /// Saves what the widgets show and asks iOS to redraw them. The folder is kept out of iCloud backups, like
+    /// the app's own data, and the file can be read once the iPhone has been unlocked after a restart, so the
+    /// Lock Screen widgets can show it.
+    @objc func widgetsUpdate(_ call: CAPPluginCall) {
+        guard let file = Self.widgetFile() else {
+            call.resolve(["ok": false, "reason": "no-app-group"])
+            return
+        }
+        let fm = FileManager.default
+        do {
+            if let text = call.getString("snapshot") {
+                var folder = file.deletingLastPathComponent()
+                try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+                var values = URLResourceValues()
+                values.isExcludedFromBackup = true
+                try folder.setResourceValues(values)
+                try Data(text.utf8).write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            } else if fm.fileExists(atPath: file.path) {
+                try fm.removeItem(at: file)
+            }
+        } catch {
+            call.reject("Couldn't save what the widgets show: \(error.localizedDescription)")
+            return
+        }
+        WidgetCenter.shared.reloadAllTimelines()
+        call.resolve(["ok": true])
+    }
+
+    /// The Shrike widgets on the Home Screen and Lock Screen, by kind and size.
+    @objc func widgetsInstalled(_ call: CAPPluginCall) {
+        let shared = Self.widgetFile() != nil
+        WidgetCenter.shared.getCurrentConfigurations { found in
+            var list: [[String: String]] = []
+            if case .success(let infos) = found {
+                list = infos.map { ["kind": $0.kind, "family": ShrikeNativePlugin.familyName($0.family)] }
+            }
+            var answer: [String: Any] = ["ok": shared, "widgets": list]
+            if !shared { answer["reason"] = "no-app-group" }
+            call.resolve(answer)
+        }
+    }
+
+    private static func familyName(_ family: WidgetFamily) -> String {
+        switch family {
+        case .systemSmall: return "systemSmall"
+        case .systemMedium: return "systemMedium"
+        case .systemLarge: return "systemLarge"
+        case .systemExtraLarge: return "systemExtraLarge"
+        case .accessoryCircular: return "accessoryCircular"
+        case .accessoryRectangular: return "accessoryRectangular"
+        case .accessoryInline: return "accessoryInline"
+        @unknown default: return "other"
         }
     }
 
