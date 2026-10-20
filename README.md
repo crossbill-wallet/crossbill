@@ -21,8 +21,6 @@ Not audited. Use at your own risk, under the same Apache 2.0 terms as Shrike (se
 
 What it doesn't do (yet): hardware wallets, multisig, PSBT import or export, payment codes, silent payments, and connecting to anything but your own Knots node.
 
-- [Shrike for iPhone](https://github.com/finchly6819/shrike-mobile-wallet) - An iPhone wallet that connects only to your own Knots node over Tor, finds wallets you already use in Shrike with no rescan, and signs with the unified sighash. New, unaudited, built yourself with Xcode.
-
 ## What you need
 
 - A Mac with Xcode installed (the full Xcode from the App Store, not only the command line tools).
