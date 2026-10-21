@@ -90,6 +90,18 @@ Right after the first wallet, the app offers two-factor: a 6-digit code from an 
 3. Type the 6-digit code it shows and tap **Turn on two-factor**.
 4. Write the eight recovery codes on the paper with your seed words. Each works once in place of a code if you lose the authenticator.
 
+### App PIN and duress PIN (optional)
+
+In Settings, App PIN, choose six digits that aren't your iPhone passcode. From then on, when Face ID doesn't work, Shrike asks for this PIN instead of the passcode, to open the app and before signing. If a face is ever added to Face ID, Shrike asks for the PIN until you confirm the change was yours in Settings, App PIN.
+
+A duress PIN is a second PIN for when someone forces you to open Shrike: cancel Face ID and type it, and Shrike opens showing only one wallet you choose. Use a wallet with a small amount in it, and keep the Shrike skin, since skins hint at what you hold.
+
+If you forget the app PIN, remove Shrike from the iPhone and add your wallets again with your seed words.
+
+### Backup (recommended)
+
+In Settings, Backup, choose a password and save the file somewhere other than this iPhone, such as iCloud Drive or a computer. Write the password with your seed words: it can't be reset. On a new iPhone, tap **Restore from a backup** on the welcome screen, then enter your node's password and each wallet's seed words. The file never holds seed words or passwords.
+
 ### Widgets (optional)
 
 Shrike has two widgets, **XBT price** and **Balance**, for the Home Screen and the Lock Screen.
@@ -129,6 +141,9 @@ Widgets can't run Tor, so they show what Shrike last got through it, with the ti
 | "Tor on this iPhone stopped responding" | Close Shrike (swipe it away in the app switcher) and open it again. |
 | Signing errors that name **ShrikeWidgets**, or an App Group | In Signing & Capabilities, choose your team for the ShrikeWidgets target too, then click Try Again. Or close Xcode, run `npm run ios:widgets` in this folder, and open it again. |
 | "Failed to show Widget" or "Could not attach to pid" right after a successful build | Xcode ran the widgets on their own. At the top of the window, change **ShrikeWidgets** next to your iPhone's name to **App**, then press Run. The widgets install with the app. |
+| Shrike asks for the app PIN and the Face ID button is gone | Face ID's faces changed since you set the PIN. If that was you, open Settings, App PIN, tap **It was me: use Face ID again** and enter the PIN. If it wasn't, someone with your passcode added a face: change your iPhone passcode and remove the face in the iPhone's Settings, Face ID & Passcode. |
+| "That password doesn't open this backup" | Check the password, capitals included. If the file was edited or damaged, use another copy. |
+| Review says an address "isn't" your contact or an address you paid | It looks like one you know but isn't the same: a common scam. Get the address again from its source and compare every character. |
 | A widget says "Open Shrike to show ..." | Open Shrike once. If Settings, Widgets says the App Group isn't set up, run `npm run ios:sync` and press Run again. |
 | A widget shows an old price | Widgets can't fetch the price themselves. Open Shrike; with a price widget on screen it fetches the price as it opens. |
 | The wallet isn't found on the node | This version supports the standard account 0 paths only: m/84'/0'/0', m/86'/0'/0', m/49'/0'/0' and m/44'/0'/0'. Check the derivation in desktop Shrike (the wallet's Settings, Keystore). |

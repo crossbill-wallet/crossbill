@@ -4,7 +4,7 @@ import { formatAmount, formatFeeRate, parseAmount, unitLabel, type Unit } from '
 import type { DraftTransaction, Payment } from '../core/txbuilder';
 import { friendlyError, toCoin, type WalletRuntime } from '../app/model';
 import { ShrikeNative } from '../app/native';
-import { Address, Amount, Field, ReplayStatus, Screen, SecondFactorField, Sheet, codeReady, parsePaymentText, shortAddress, useApp, useNav } from './kit';
+import { Address, Amount, Field, RecipientNote, ReplayStatus, Screen, SecondFactorField, Sheet, Toggle, codeReady, describeKnown, parsePaymentText, shortAddress, useApp, useNav } from './kit';
 
 interface Recipient {
   address: string;
@@ -107,7 +107,7 @@ export function Send({ address, amount, label, coins }: { address?: string; amou
                   }}
                 />
               </div>
-              {app.contactFor(r.address) && <div className="hint">Saved as {app.contactFor(r.address)!.name}</div>}
+              {p.script && !p.addrErr && <RecipientNote address={r.address} />}
               <div className="button-row">
                 <button
                   className="btn secondary small"
@@ -351,7 +351,10 @@ export function Review({ w, draft, onBack, onDone, title = 'Review', replacing }
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
   const [code, setCode] = useState('');
+  const [checked, setChecked] = useState(false);
   const payments = draft.outputs.filter((o) => !o.isChange);
+  const checks = payments.map((o) => app.recipientCheck(o.payment?.address ?? ''));
+  const lookalike = !replacing && checks.some((c) => c.lookalikes.length > 0);
   const total = payments.reduce((s, o) => s + o.value, 0) + draft.fee;
   const decision = app.replayDecision();
   const needCode = app.settings.twoFactor;
@@ -401,7 +404,28 @@ export function Review({ w, draft, onBack, onDone, title = 'Review', replacing }
             <div className="note" style={{ marginTop: 8 }}>
               To
             </div>
-            <Address value={o.payment?.address || ''} size="lg" />
+            <Address value={o.payment?.address || ''} size="lg" against={checks[i].lookalikes[0]?.address} />
+            {replacing ? null : checks[i].lookalikes.length > 0 ? (
+              <div className="lookalike" role="alert">
+                <strong>This isn’t {describeKnown(checks[i].lookalikes[0])}.</strong> It matches at the start and the end, which is how address poisoning works: a scammer makes an address that
+                looks like one you use and sends you a tiny amount from it, hoping you copy it. The marked groups are where they differ. Compare with:
+                <div className="against">
+                  <Address value={checks[i].lookalikes[0].address} against={o.payment?.address} />
+                </div>
+              </div>
+            ) : checks[i].exact ? (
+              <div className="note" style={{ marginTop: 4 }}>
+                {checks[i].exact!.kind === 'contact'
+                  ? `Saved as ${checks[i].exact!.name}`
+                  : checks[i].exact!.kind === 'own'
+                    ? 'One of your wallets on this phone'
+                    : `You’ve paid this address before`}
+              </div>
+            ) : (
+              <div className="note" style={{ marginTop: 4 }}>
+                You haven’t paid this address before. Check it with whoever gave it to you.
+              </div>
+            )}
           </div>
         ))}
 
@@ -442,11 +466,19 @@ export function Review({ w, draft, onBack, onDone, title = 'Review', replacing }
           </div>
         </dl>
         <p className="note">Check each address group by group against where it came from. Sending can’t be undone once it confirms.</p>
+        {lookalike && (
+          <Toggle
+            label="I’ve checked every character"
+            detail="Against where the address came from, not against what’s in your history. Sending can’t be undone."
+            checked={checked}
+            onChange={setChecked}
+          />
+        )}
         {needCode && <SecondFactorField value={code} onChange={setCode} />}
         {error && <div className="banner error">{error}</div>}
         <button
           className="btn primary"
-          disabled={sending || (needCode && !codeReady(code))}
+          disabled={sending || (needCode && !codeReady(code)) || (lookalike && !checked)}
           onClick={async () => {
             setSending(true);
             setError(null);

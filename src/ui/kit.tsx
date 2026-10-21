@@ -5,6 +5,7 @@ import { isNative, ShrikeNative } from '../app/native';
 import { DECISION_TEXT, decisionSummary, isOptedIn, type ReplayDecision } from '../core/replay';
 import { cleanCode, looksLikeRecoveryCode } from '../core/totp';
 import { formatAmount, unitLabel, type Unit } from '../core/units';
+import type { KnownAddress } from '../core/poison';
 
 // ------------------------------------------------------------------ app state
 
@@ -69,7 +70,9 @@ export type Route =
   | { name: 'explorer' }
   | { name: 'replay' }
   | { name: 'donate' }
-  | { name: 'widgets' };
+  | { name: 'widgets' }
+  | { name: 'pin' }
+  | { name: 'backup' };
 
 interface Nav {
   stack: Route[];
@@ -254,18 +257,43 @@ export function Row({ title, meta, end, onClick }: { title: ReactNode; meta?: Re
 // ------------------------------------------------------------------ text
 
 /** Addresses in groups of four, alternating tone, so they can be checked a group at a time. */
-export function Address({ value, size }: { value: string; size?: 'sm' | 'lg' }) {
+/**
+ * An address in groups of four, for checking group by group. With `against`, the groups that differ from that
+ * other address are marked, to show where a look-alike gives itself away.
+ */
+export function Address({ value, size, against }: { value: string; size?: 'sm' | 'lg'; against?: string }) {
   const chunks = value.match(/.{1,4}/g) ?? [];
+  const other = against?.toLowerCase().match(/.{1,4}/g) ?? null;
   return (
     <span className="addr" style={size === 'sm' ? { fontSize: 'var(--t-sm)' } : size === 'lg' ? { fontSize: 'var(--t-lg)' } : undefined}>
       {chunks.map((c, i) => (
         <Fragment key={i}>
-          <span className="chunk">{c}</span>
+          <span className={`chunk${other && other[i] !== c.toLowerCase() ? ' differs' : ''}`}>{c}</span>
           {i < chunks.length - 1 ? ' ' : ''}
         </Fragment>
       ))}
     </span>
   );
+}
+
+/** "your contact Exchange", "an address of Savings", "an address you paid on Oct 3, 2026" */
+export function describeKnown(k: KnownAddress): string {
+  if (k.kind === 'contact') return `your contact ${k.name}`;
+  if (k.kind === 'own') return k.name ? `an address of your wallet ${k.name}` : 'an address of one of your wallets';
+  return k.when ? `an address you paid on ${new Date(k.when * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}` : 'an address you paid before';
+}
+
+/** Under a recipient field: what the address is, or what it looks like without being. */
+export function RecipientNote({ address }: { address: string }) {
+  const app = useApp();
+  const c = app.recipientCheck(address);
+  if (c.lookalikes.length) {
+    return <div className="error">Looks like {describeKnown(c.lookalikes[0])}, but isn’t the same address. Check every character before you go on.</div>;
+  }
+  if (!c.exact) return null;
+  if (c.exact.kind === 'contact') return <div className="hint">Saved as {c.exact.name}</div>;
+  if (c.exact.kind === 'own') return <div className="hint">{c.exact.name ? `An address of your wallet ${c.exact.name}` : 'An address of one of your wallets'}</div>;
+  return <div className="hint">You’ve paid this address before{c.exact.when ? `, on ${new Date(c.exact.when * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}</div>;
 }
 
 export function shortAddress(a: string): string {
@@ -403,14 +431,14 @@ export function Choice({ checked, onSelect, title, detail }: { checked: boolean;
   );
 }
 
-export function Toggle({ label, detail, checked, onChange }: { label: string; detail?: string; checked: boolean; onChange: (v: boolean) => void }) {
+export function Toggle({ label, detail, checked, onChange, disabled }: { label: string; detail?: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
-    <label className="toggle">
+    <label className={`toggle${disabled ? ' disabled' : ''}`}>
       <span>
         <span style={{ fontWeight: 700 }}>{label}</span>
         {detail && <div className="why">{detail}</div>}
       </span>
-      <input type="checkbox" role="switch" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <input type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
     </label>
   );
 }

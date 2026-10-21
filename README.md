@@ -24,6 +24,9 @@ Not audited. Use at your own risk, under the same Apache 2.0 terms as Shrike (se
 - Contacts: saved addresses, such as exchange deposit addresses, to pick from Saved on the Send screen. After a send to a new address the app offers to save it.
 - Frozen coins show with an ice-blue tint in the Coins list.
 - Appearance: light, dark, or matching the iPhone; four skins, three of which open as the phone's wallets hold 0.1, 1 and 10 confirmed coins on mainnet; and three fonts (Atkinson Hyperlegible, San Francisco, IBM Plex).
+- An app PIN that replaces the iPhone passcode as the fallback when Face ID doesn't work, for opening the app and signing, and stops trusting Face ID if a face is added. An optional duress PIN opens one decoy wallet and nothing else.
+- An encrypted backup file of everything but secrets (wallets' details, labels, frozen coins, contacts, settings, the node's address), restored on a new iPhone before entering seed words.
+- Address-poisoning checks: a recipient that looks like a contact, an address you've paid or one of your own without being it is flagged, with the differences marked, before you can send.
 - Widgets for the Home Screen and the Lock Screen: the XBT price, with the day's change and chart, and a wallet's balance in BTC or sats. They show what the app last got through Tor, with the time, and never go online themselves. The balance can be kept out of them in Settings.
 
 What it doesn't do (yet): hardware wallets, multisig, PSBT import or export, payment codes, silent payments, and connecting to anything but your own Knots node.
@@ -82,6 +85,9 @@ If the app doesn't find your wallet on the node, check the derivation in Shrike 
 | XBT price from Neoxa Exchange | `src/core/price.ts` |
 | Light and dark, skins, fonts | `src/app/look.ts`, `src/ui/styles.css` |
 | Community links, donation address | `src/app/links.ts` |
+| App PIN and duress PIN | `src/core/pin.ts`; the PIN section of `src/app/model.ts`; `src/ui/Pin.tsx` |
+| Backup file | `src/core/backup.ts` (encryption), `src/app/backup.ts` (contents), `src/ui/Backup.tsx` |
+| Address-poisoning checks | `src/core/poison.ts` |
 | What the widgets show | `src/app/widgets.ts`, written for them by `ShrikeNativePlugin.swift` |
 | The widgets themselves (SwiftUI) | `ios/App/ShrikeWidgets` |
 | Adding the widgets to the Xcode project | `scripts/ios-widgets.mjs` |
@@ -98,6 +104,7 @@ npm test
 - `tests/core-logic.test.ts` covers coin selection, fees, the replay decision, v2 headers, addresses, labels and the signature readback.
 - `tests/features.test.ts` checks the two-factor codes against the RFC 6238 and RFC 4226 test vectors, recovery codes, reading Neoxa's price data, and the skin thresholds.
 - `tests/twofactor-model.test.ts` covers the two-factor checks in the app model: codes used once, recovery codes, the lockout, and the Keychain deciding whether two-factor is on.
+- `tests/security.test.ts` checks the app PIN's rules and hashing, the backup file (round trip, wrong password, tampering, refusing costly headers) and the look-alike address rules. `tests/security-model.test.ts` covers the PIN standing in for the passcode, Face ID changes, the duress session showing nothing of the hidden wallets, backups and restoring them, and the recipient checks.
 - `tests/widgets.test.ts` checks what the widgets are handed, the short amounts on the round Lock Screen widget, the widgets' colors against the stylesheet, and the script that adds them to the Xcode project, on a project with someone's own bundle ID and team. `tests/widgets-model.test.ts` covers the app handing them a snapshot only when something on it changed, fetching the price for a price widget, the balance setting and the links a widget opens.
 - `tests/price-flow.test.ts` covers getting the price after iOS took back Tor's port, retries on new routes, a stuck Tor, going without Tor once, and resending a request the dead port refused.
 - `tests/regtest.e2e.test.ts` runs the whole core against a real Bitcoin Knots `v29.4.1.knots20260508` node in regtest, with the fork activating at height 20: it checks the opt-in is declined before activation and taken after, that the node accepts sends from all four address types, that a forged `0x21` is refused, that fee bumping replaces the original, and that a spent coin is never offered again. Point it at a build of that Knots tag: `KNOTS_BIN=/path/to/knots/build/bin npm test`.
@@ -106,7 +113,7 @@ npm test
 
 ## Trying it in a browser
 
-`DEV_RPC_TARGET=http://127.0.0.1:18443 npm run dev` serves the app on your Mac against a local regtest node, with Tor off. The browser version keeps seed words in memory only and exists for testing screens; don't use it with real funds. Prices come straight from Neoxa Exchange there, or from `DEV_PRICE_TARGET` if set. To see the Market tab's reconnect steps without a phone, set `localStorage['shrike.devTor']` to `dead-port`, `no-route` or `stuck`, reload, and run `__shrike.torAvailable = true` in the console. To see Settings, Widgets with widgets on screen, set `localStorage['shrike.devWidgets']` to a list such as `["ShrikePrice:systemSmall"]`; what the app would hand the widgets is kept in `localStorage['shrike.widgetSnapshot']`.
+`DEV_RPC_TARGET=http://127.0.0.1:18443 npm run dev` serves the app on your Mac against a local regtest node, with Tor off. The browser version keeps seed words in memory only and exists for testing screens; don't use it with real funds. Prices come straight from Neoxa Exchange there, or from `DEV_PRICE_TARGET` if set. To see the Market tab's reconnect steps without a phone, set `localStorage['shrike.devTor']` to `dead-port`, `no-route` or `stuck`, reload, and run `__shrike.torAvailable = true` in the console. To see Settings, Widgets with widgets on screen, set `localStorage['shrike.devWidgets']` to a list such as `["ShrikePrice:systemSmall"]`; what the app would hand the widgets is kept in `localStorage['shrike.widgetSnapshot']`. For the app PIN, `localStorage['shrike.devFaceId']` set to `fail` makes Face ID fail, and `changed` acts as if a face was added; `__shrike.locked = true; __shrike['emit']()` shows the lock screen.
 
 ## What's next
 

@@ -53,13 +53,39 @@ export function Settings() {
           </div>
         </button>
       ))}
+      {app.waitingWallets().map((b) => (
+        <button key={b.config.xpub} className="row setting" onClick={() => nav.push({ name: 'add-wallet' })}>
+          <div className="main">
+            <div className="title">{b.config.name}</div>
+            <div className="meta">From your backup, waiting for its seed words</div>
+          </div>
+        </button>
+      ))}
       <button className="btn quiet" onClick={() => nav.push({ name: 'add-wallet' })}>
         Add a wallet
       </button>
 
       <div className="section-title">Security</div>
       <Row title="Two-factor" meta={app.settings.twoFactor ? 'A code is needed to send and to show seed words' : 'Off. Sends need Face ID only'} end={app.settings.twoFactor ? 'On' : 'Off'} onClick={() => nav.push({ name: 'two-factor' })} />
-      <Toggle label="Ask for Face ID to open" detail="And again after a minute away. Signing always asks." checked={app.settings.lockOnOpen} onChange={(v) => void app.updateSettings({ lockOnOpen: v })} />
+      <Row
+        title="App PIN"
+        meta={app.pinOn ? 'Asked for when Face ID doesn’t work, instead of the iPhone passcode' : 'Off. When Face ID doesn’t work, the iPhone passcode opens Shrike'}
+        end={app.pinOn ? 'On' : 'Off'}
+        onClick={() => nav.push({ name: 'pin' })}
+      />
+      <Toggle
+        label="Ask for Face ID to open"
+        detail={app.pinOn ? 'Always on while the app PIN is on.' : 'And again after a minute away. Signing always asks.'}
+        checked={app.settings.lockOnOpen || app.pinOn}
+        onChange={(v) => void app.updateSettings({ lockOnOpen: v })}
+        disabled={app.pinOn}
+      />
+
+      <Row
+        title="Backup"
+        meta={app.settings.lastBackupAt ? `Last saved ${new Date(app.settings.lastBackupAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}` : 'Labels, contacts and settings, in one file. Not saved yet'}
+        onClick={() => nav.push({ name: 'backup' })}
+      />
 
       <div className="section-title">Look</div>
       <Row
@@ -358,7 +384,7 @@ function ExplorerSetting() {
 export function WalletInfo({ id }: { id: string }) {
   const app = useApp();
   const nav = useNav();
-  const w = app.wallets.find((x) => x.config.id === id);
+  const w = app.walletById(id);
   const [name, setName] = useState(w?.config.name ?? '');
   const [seed, setSeed] = useState<{ mnemonic: string; passphrase: string } | null>(null);
   const [msg, setMsg] = useState<string | null>(null);

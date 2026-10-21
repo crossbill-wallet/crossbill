@@ -53,6 +53,8 @@ export function TxDetail({ txid }: { txid: string }) {
         {timeAgo(t.time)}
       </p>
 
+      {app.isDust(t) && <DustNote txid={txid} />}
+
       <div className="txid-block">
         <div className="label">Transaction ID</div>
         <div className="txid">{txid}</div>
@@ -236,5 +238,37 @@ export function Bump({ txid, cancel }: { txid: string; cancel?: boolean }) {
         Review
       </button>
     </Screen>
+  );
+}
+
+/**
+ * A tiny payment from someone else. Usually harmless, but it's how a look-alike address gets into a history, and
+ * spending it with other coins links them together.
+ */
+function DustNote({ txid }: { txid: string }) {
+  const app = useApp();
+  const w = app.active!;
+  const t = w.snapshot?.txs.find((x) => x.txid === txid);
+  const mine = (t?.outputs ?? []).filter((o) => o.mine);
+  const frozen = mine.length > 0 && mine.every((o) => w.labels.isFrozen(txid, o.vout));
+  return (
+    <div className="banner">
+      <strong>A tiny payment from someone else.</strong> Scammers send these so a look-alike of an address you use shows up in your history, hoping you copy it next time. Don’t copy addresses from
+      this transaction. Freezing the coin keeps it from being spent with your others, which would link them.
+      <div style={{ marginTop: 10 }}>
+        {frozen ? (
+          <span className="pill">Frozen</span>
+        ) : (
+          <button
+            className="btn secondary small"
+            onClick={async () => {
+              for (const o of mine) if (!w.labels.isFrozen(txid, o.vout)) await app.setFrozen(w, txid, o.vout, true);
+            }}
+          >
+            Freeze it
+          </button>
+        )}
+      </div>
+    </div>
   );
 }

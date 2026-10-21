@@ -1878,3 +1878,242 @@ svg.step-mark.failed path {
     background-position: -100% 0;
   }
 }
+
+/* ------------------------------------------------------------ app PIN */
+
+.pinpad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0 4px;
+}
+
+.pin-title {
+  font-size: var(--t-lg);
+  font-weight: 700;
+  text-align: center;
+}
+
+.pin-detail {
+  margin-top: 6px;
+  font-size: var(--t-sm);
+  color: var(--slate);
+  text-align: center;
+  max-width: 22em;
+}
+
+.pin-dots {
+  display: flex;
+  gap: 16px;
+  margin: 22px 0 10px;
+}
+
+.pin-dots span {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  transition: background 0.1s;
+}
+
+.pin-dots span.on {
+  background: var(--ink);
+}
+
+.pin-dots.shake {
+  animation: pin-shake 0.36s ease-in-out;
+}
+
+@keyframes pin-shake {
+  20% {
+    transform: translateX(-10px);
+  }
+  40% {
+    transform: translateX(9px);
+  }
+  60% {
+    transform: translateX(-6px);
+  }
+  80% {
+    transform: translateX(4px);
+  }
+}
+
+.pin-error {
+  min-height: 2.6em;
+  font-size: var(--t-sm);
+  color: var(--ember);
+  text-align: center;
+  max-width: 22em;
+}
+
+.pin-keys {
+  display: grid;
+  grid-template-columns: repeat(3, 76px);
+  gap: 14px 26px;
+  margin-top: 4px;
+}
+
+.pin-keys button {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  border: none;
+  background: var(--field);
+  color: var(--ink);
+  font: 500 30px/1 var(--sans);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.pin-keys button:active:not(:disabled) {
+  background: var(--rule);
+}
+
+.pin-keys button:disabled {
+  opacity: 0.4;
+}
+
+.pin-keys .pin-extra,
+.pin-keys .pin-del {
+  background: none;
+  display: grid;
+  place-items: center;
+}
+
+.pin-keys .pin-del:disabled {
+  opacity: 0;
+}
+
+.pin-cancel {
+  margin-top: 10px;
+}
+
+/* On the lock screen: the bird moves up and the pad sits on the band */
+.pinpad.band .pin-detail {
+  color: var(--on-mask-dim);
+}
+
+.pinpad.band .pin-dots span {
+  border-color: var(--on-mask);
+}
+
+.pinpad.band .pin-dots span.on {
+  background: var(--on-mask);
+}
+
+.pinpad.band .pin-error {
+  color: #ff9a85;
+}
+
+.pinpad.band .pin-keys button {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--on-mask);
+}
+
+.pinpad.band .pin-keys button:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.pinpad.band .pin-keys .pin-extra,
+.pinpad.band .pin-keys .pin-del {
+  background: none;
+}
+
+.lock img,
+.lock-name {
+  transition:
+    top 0.35s ease,
+    width 0.35s ease,
+    opacity 0.25s ease;
+}
+
+.lock.pin img {
+  top: calc(var(--safe-top) + 11vh);
+  width: min(15vh, 40vw);
+}
+
+.lock.pin .lock-name {
+  opacity: 0;
+}
+
+.lock-pin {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--safe-top) + 19vh);
+  bottom: calc(var(--safe-bottom) + 16px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fade-up 0.35s ease-out both;
+}
+
+/* ------------------------------------------------------------ look-alike addresses */
+
+.addr .chunk.differs {
+  color: var(--ember);
+  background: var(--ember-wash);
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.lookalike {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--ember);
+  border-radius: 10px;
+  background: var(--ember-wash);
+  color: var(--ink);
+  font-size: var(--t-sm);
+}
+
+.lookalike strong {
+  color: var(--ember);
+}
+
+.lookalike .against {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--paper);
+  border-radius: 8px;
+}
+
+.toggle.disabled {
+  opacity: 0.6;
+}
+
+.welcome .btn.quiet {
+  color: var(--on-mask);
+  margin-top: 8px;
+}
+
+/* Short screens, such as an iPhone SE: smaller keys so the pad fits under the bird */
+@media (max-height: 700px) {
+  .pin-keys {
+    grid-template-columns: repeat(3, 64px);
+    gap: 10px 22px;
+  }
+  .pin-keys button {
+    width: 64px;
+    height: 64px;
+    font-size: 26px;
+  }
+  .pin-dots {
+    margin: 14px 0 6px;
+  }
+}
+
+/* A link inside a sentence */
+.btn.link {
+  display: inline;
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  width: auto;
+}

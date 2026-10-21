@@ -48,6 +48,10 @@ import {
   verifyTotp,
   cleanCode,
 } from '../core/totp';
+import { hashPin, pinMatches, pinProblem, type PinHash } from '../core/pin';
+import { decryptBackup, encryptBackup, readBackupHeader } from '../core/backup';
+import { checkRecipient, DUST_SATS, type KnownAddress, type RecipientCheck } from '../core/poison';
+import { BACKUP_SETTINGS, checkBackupContents, type BackupContents, type BackupWallet } from './backup';
 import { skinIndex, tierFor, SKINS, type Appearance, type FontId, type SkinId } from './look';
 import { errorKind, isNative, ShrikeNative, type TorHealth } from './native';
 import { readJson, removeJson, writeJson } from './storage';
@@ -94,7 +98,35 @@ export interface Settings {
   widgetBalance: boolean;
   /** The wallet the Balance widget shows. null means the first one on this network, the one the app opens to. */
   widgetWallet: string | null;
+  /** The app's own PIN is on. The Keychain record is what decides; this mirrors it for the screens. */
+  appPin: boolean;
+  /** unix ms of the last backup file saved, or null */
+  lastBackupAt: number | null;
 }
+
+/** What restoring a backup did, for the screen to say. */
+export interface RestoreSummary {
+  /** Settings and the node's address came back, on a phone with nothing set up yet */
+  settings: boolean;
+  contacts: number;
+  /** Labels added to wallets already on this phone */
+  labels: number;
+  /** Wallets that come back with their labels once their seed words are entered */
+  waiting: string[];
+}
+
+/** What the app PIN's Keychain record holds: hashes only. The duress PIN and its decoy wallet live only here. */
+interface PinRecord {
+  pin: PinHash;
+  duress: (PinHash & { wallet: string }) | null;
+  createdAt: number;
+}
+
+/** A PIN typed at the lock screen or for a signature: the real one, the duress one, or neither. */
+type PinResult = 'real' | 'duress' | null;
+
+/** How opening the app went: open, or the PIN pad is needed, or Face ID (with the passcode) failed. */
+export type UnlockResult = 'ok' | 'pin' | 'failed';
 
 /** The iPhone widgets as the app sees them, for the Widgets screen in Settings. */
 export interface WidgetState {
@@ -239,6 +271,10 @@ const DAY_CHART = CHART_RANGES[0];
 const WIDGET_PRICE_EVERY_MS = 5 * 60_000;
 const RPC_PASSWORD_KEY = 'rpc-password';
 const TWO_FACTOR_KEY = 'two-factor';
+const PIN_KEY = 'app-pin';
+const PIN_ATTEMPTS_FILE = 'pin-attempts.json';
+/** Wallets from a restored backup, waiting for their seed words */
+const RESTORE_FILE = 'restore-waiting.json';
 const seedKey = (id: string) => `seed:${id}`;
 
 const DEFAULT_SETTINGS: Settings = {
@@ -259,6 +295,8 @@ const DEFAULT_SETTINGS: Settings = {
   twoFactorOffered: false,
   widgetBalance: true,
   widgetWallet: null,
+  appPin: false,
+  lastBackupAt: null,
 };
 
 export interface RescanChoice {
@@ -311,6 +349,30 @@ export class AppModel {
   private twoFactorQueue: Promise<unknown> = Promise.resolve();
   private priceReq: Promise<void> | null = null;
   widgets: WidgetState = { status: 'unknown', installed: [], sentAt: 0 };
+  /**
+   * After the duress PIN: the decoy wallet, and anything added since, are all the screens show. Nothing about it is
+   * saved, and it ends when the app locks again.
+   */
+  private decoy: {
+    wallet: string;
+    wallets: Set<string>;
+    contacts: Set<string>;
+    /** What the App PIN screen shows in this session, so it looks as it would in a real one. Never saved */
+    pinOff: boolean;
+    duressShown: string | null;
+  } | null = null;
+  /** Counts sessions, so a PIN asked for in one can't be answered in the next */
+  private session = 0;
+  /** Face ID's faces changed since the PIN was set, so Face ID alone doesn't open the app until they're trusted again */
+  faceIdChanged = false;
+  /** A screen asking for the app PIN before the seed words are read, when Face ID didn't confirm it's you */
+  pinAsk: { reason: string; resolve: (ok: boolean) => void } | null = null;
+  private pinFailures = 0;
+  /** performance.now() when the PIN lockout ends */
+  private pinDeadline = 0;
+  private pinQueue: Promise<unknown> = Promise.resolve();
+  /** Wallets from a restored backup, waiting for their seed words */
+  private restoreWaiting: BackupWallet[] = [];
   /** A tab a widget asked to open, for the screens to go to once Face ID has opened the app */
   pendingTab: LinkTab | null = null;
   private widgetLast: WidgetSnapshot | null = null;
@@ -326,6 +388,8 @@ export class AppModel {
   private busy: Promise<void> | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private backgroundedAt: number | null = null;
+  /** performance.now() when the app went to the background: a clock that setting the time can't move */
+  private backgroundedMono = 0;
   version = 0;
 
   get net(): NetworkParams {
@@ -361,11 +425,16 @@ export class AppModel {
     this.failures = attempts?.failures ?? 0;
     this.lockDeadline = performance.now() + (attempts?.remaining ?? 0) * 1000;
     await this.syncTwoFactorFlag(s == null && savedConfigs == null);
+    const pinAttempts = await readJson<Partial<TwoFactorAttempts>>(PIN_ATTEMPTS_FILE);
+    this.pinFailures = pinAttempts?.failures ?? 0;
+    this.pinDeadline = performance.now() + (pinAttempts?.remaining ?? 0) * 1000;
+    await this.syncPinFlag(s == null && savedConfigs == null);
+    this.restoreWaiting = (await readJson<BackupWallet[]>(RESTORE_FILE)) ?? [];
     this.widgetLast = await readJson<WidgetSnapshot>(WIDGETS_FILE);
     this.widgetJson = this.widgetLast ? JSON.stringify(this.widgetLast) : '';
     const day = this.widgetLast?.price;
     if (day?.points && day.pointsAt) this.dayChart = { closes: day.points, at: day.pointsAt };
-    this.locked = this.settings.lockOnOpen && this.wallets.length > 0 && isNative;
+    this.locked = this.locksOnOpen();
     this.ready = true;
     this.emit();
     CapApp.addListener('appUrlOpen', ({ url }) => this.openLink(url)).catch(() => undefined);
@@ -379,13 +448,22 @@ export class AppModel {
     CapApp.addListener('appStateChange', ({ isActive }) => {
       if (!isActive) {
         this.backgroundedAt = Date.now();
+        this.backgroundedMono = performance.now();
         // A lockout counts down only while the app is open; save what's left in case iOS ends the app
         if (this.twoFactorWait() > 0) void this.saveAttempts();
+        if (this.pinWait() > 0) void this.savePinAttempts();
       } else {
-        const away = this.backgroundedAt ? Date.now() - this.backgroundedAt : 0;
+        const wall = this.backgroundedAt ? Date.now() - this.backgroundedAt : 0;
+        const mono = this.backgroundedAt ? performance.now() - this.backgroundedMono : 0;
+        // The longer of the two: the wall clock can be set back, and the other may pause while the iPhone sleeps
+        const away = wall < 0 ? wall : Math.max(wall, mono);
         this.backgroundedAt = null;
-        if (this.settings.lockOnOpen && this.wallets.length > 0 && isNative && away > 60_000) {
+        // A clock set back while away reads as a negative time away: that locks too
+        if (this.locksOnOpen() && (away > 60_000 || away < 0)) {
           this.locked = true;
+          this.decoy = null;
+          this.session++;
+          this.cancelPin();
           this.emit();
         } else {
           if (this.settings.node) void this.refresh();
@@ -398,16 +476,63 @@ export class AppModel {
     if (!this.locked && this.settings.node) void this.connect();
   }
 
-  async unlock(): Promise<boolean> {
-    const res = await ShrikeNative.authenticate({ reason: 'Open Shrike' });
-    if (res.ok) {
-      this.locked = false;
-      this.emit();
-      if (this.settings.node) void (this.rpc ? this.refresh() : this.connect());
-      if (this.priceWatchers > 0) void this.loadPrice(true);
-      else void this.priceForWidgets();
+  /** Whether the app asks for Face ID (or the PIN) when it opens. Always, while the app PIN is on. */
+  private locksOnOpen(): boolean {
+    return (this.settings.lockOnOpen || this.settings.appPin) && this.wallets.length > 0 && isNative;
+  }
+
+  /**
+   * Opens the app with Face ID. With the app PIN on, Face ID alone is asked for, and anything but success means the
+   * PIN pad, never the iPhone passcode. Without it, the passcode works as before.
+   */
+  async unlock(): Promise<UnlockResult> {
+    if (this.settings.appPin) {
+      const res = await ShrikeNative.authenticate({ reason: 'Open Shrike', biometricsOnly: true, fallbackTitle: 'Use PIN' });
+      if (res.changed && !this.faceIdChanged) {
+        this.faceIdChanged = true;
+        this.emit();
+      }
+      if (!res.ok) return 'pin';
+      this.opened(null);
+      return 'ok';
     }
-    return res.ok;
+    const res = await ShrikeNative.authenticate({ reason: 'Open Shrike' });
+    if (!res.ok) return 'failed';
+    this.opened(null);
+    return 'ok';
+  }
+
+  /** Opens the app with the PIN typed on the lock screen. The duress PIN opens the decoy wallet alone. */
+  async unlockWithPin(pin: string): Promise<void> {
+    const r = await this.checkPin(pin, 'any');
+    if (r === 'real') {
+      this.opened(null);
+      return;
+    }
+    const rec = await this.readPinRecord();
+    this.opened(rec?.duress ? { wallet: rec.duress.wallet, wallets: new Set([rec.duress.wallet]), contacts: new Set(), pinOff: false, duressShown: null } : null);
+  }
+
+  private opened(decoy: AppModel['decoy']): void {
+    this.session++;
+    this.cancelPin();
+    this.decoy = decoy;
+    if (decoy) {
+      // Straight to the decoy wallet; if it isn't on this network, the app looks like it has none here yet
+      this.activeId = this.networkWallets()[0]?.config.id ?? null;
+    } else if (!this.active) {
+      this.activeId = this.networkWallets()[0]?.config.id ?? null;
+    }
+    this.locked = false;
+    this.emit();
+    if (this.settings.node) void (this.rpc ? this.refresh() : this.connect());
+    if (this.priceWatchers > 0) void this.loadPrice(true);
+    else void this.priceForWidgets();
+  }
+
+  /** Whether a wallet shows in this session: always, unless the duress PIN opened the app. */
+  private shows(w: WalletRuntime): boolean {
+    return !this.decoy || this.decoy.wallets.has(w.config.id);
   }
 
   private runtimeFor(c: WalletConfig, file: WalletFile | null): WalletRuntime {
@@ -529,8 +654,8 @@ export class AppModel {
     await ShrikeNative.vaultSet({ key: RPC_PASSWORD_KEY, value: password, requireAuth: false });
     await this.updateSettings({ node, network });
     this.rpc = null;
-    if (!this.wallets.some((w) => w.config.id === this.activeId && w.config.network === network)) {
-      this.activeId = this.wallets.find((w) => w.config.network === network)?.config.id ?? null;
+    if (!this.networkWallets().some((w) => w.config.id === this.activeId)) {
+      this.activeId = this.networkWallets()[0]?.config.id ?? null;
     }
     await this.connect();
   }
@@ -622,7 +747,7 @@ export class AppModel {
     const firstTime = this.networkWallets().some((w) => !w.snapshot);
     this.conn = { phase: 'syncing', message: firstTime ? 'Reading wallet history' : 'Checking for new activity' };
     this.emit();
-    for (const w of this.wallets.filter((x) => x.config.network === this.settings.network)) {
+    for (const w of this.networkWallets()) {
       await this.syncWallet(rpc, w);
     }
     try {
@@ -637,7 +762,8 @@ export class AppModel {
 
   /** Opens skins as the confirmed mainnet balance across the phone's wallets passes each threshold. */
   private async checkSkinTier(): Promise<void> {
-    if (this.settings.network !== 'mainnet') return;
+    // A decoy session never opens skins: they'd be saved, and show what the hidden wallets hold
+    if (this.settings.network !== 'mainnet' || this.decoy) return;
     const total = this.wallets.filter((w) => w.config.network === 'mainnet').reduce((s, w) => s + (w.snapshot?.balance.confirmed ?? 0), 0);
     const tier = tierFor(total);
     if (tier > this.settings.skinTier) {
@@ -648,6 +774,7 @@ export class AppModel {
 
   /** Whether a skin can be picked. On test networks every skin is open to try, since their coins have no value. */
   skinOpen(id: SkinId): boolean {
+    // Unchanged in a decoy session: the lock screen and widgets already showed the skin, and a change would stand out
     return this.settings.network !== 'mainnet' || skinIndex(id) <= this.settings.skinTier;
   }
 
@@ -689,11 +816,17 @@ export class AppModel {
   // ------------------------------------------------------------------------------------------- wallets
 
   get active(): WalletRuntime | null {
-    return this.wallets.find((w) => w.config.id === this.activeId) ?? null;
+    return this.wallets.find((w) => w.config.id === this.activeId && this.shows(w)) ?? null;
   }
 
+  /** The wallets on this network that the screens show. */
   networkWallets(): WalletRuntime[] {
-    return this.wallets.filter((w) => w.config.network === this.settings.network);
+    return this.wallets.filter((w) => w.config.network === this.settings.network && this.shows(w));
+  }
+
+  /** A wallet by its ID, if this session shows it. */
+  walletById(id: string): WalletRuntime | undefined {
+    return this.wallets.find((w) => w.config.id === id && this.shows(w));
   }
 
   selectWallet(id: string): void {
@@ -721,20 +854,32 @@ export class AppModel {
   async addWallet(input: { name: string; mnemonic: string; passphrase: string; scriptType: ScriptType; rescan: RescanChoice }): Promise<void> {
     const mnemonic = normalizeMnemonic(input.mnemonic);
     const acct = deriveAccount(mnemonic, input.passphrase, input.scriptType, this.net);
-    if (this.wallets.some((w) => w.config.xpub === acct.xpub)) throw new Error('This wallet is already on the phone');
+    const already = this.wallets.find((w) => w.config.xpub === acct.xpub && w.config.network === this.settings.network);
+    if (already && this.decoy && !this.shows(already)) {
+      // Whoever typed these seed words can spend from the wallet anyway; saying it's already here would say more
+      this.decoy.wallets.add(already.config.id);
+      this.activeId = already.config.id;
+      this.emit();
+      return;
+    }
+    if (already) throw new Error('This wallet is already on the phone');
+    // A wallet from a restored backup gets its labels, frozen coins and address window back
+    const restored = this.restoreWaiting.find((b) => b.config.xpub === acct.xpub && b.config.network === this.settings.network);
     const config: WalletConfig = {
-      id: randomId(),
+      // A restored wallet keeps its old ID, so settings that name it (the Balance widget's wallet) still do
+      id: restored && !this.wallets.some((w) => w.config.id === restored.config.id) ? restored.config.id : randomId(),
       name: input.name.trim() || 'Wallet',
       network: this.settings.network,
       scriptType: input.scriptType,
       fingerprint: acct.fingerprint,
       derivation: acct.derivation,
       xpub: acct.xpub,
-      gapLimit: DEFAULT_GAP_LIMIT,
-      createdAt: Date.now(),
+      gapLimit: restored ? Math.max(DEFAULT_GAP_LIMIT, restored.config.gapLimit) : DEFAULT_GAP_LIMIT,
+      createdAt: restored?.config.createdAt ?? Date.now(),
       hasPassphrase: input.passphrase.length > 0,
     };
     const w = this.runtimeFor(config, null);
+    if (restored) w.labels = new LabelStore(restored.labels);
 
     // The seed goes to the Keychain first, behind Face ID, before anything else is saved
     await ShrikeNative.vaultSet({ key: seedKey(config.id), value: JSON.stringify({ mnemonic, passphrase: input.passphrase }), requireAuth: true });
@@ -761,9 +906,14 @@ export class AppModel {
     }
 
     this.wallets.push(w);
+    this.decoy?.wallets.add(config.id);
     this.activeId = config.id;
     await this.saveWalletList();
     await this.saveWallet(w);
+    if (restored) {
+      this.restoreWaiting = this.restoreWaiting.filter((b) => b !== restored);
+      await writeJson(RESTORE_FILE, this.restoreWaiting);
+    }
     this.node = await readNodeStatus(rpc, this.net);
     await this.syncAll(rpc);
   }
@@ -788,7 +938,7 @@ export class AppModel {
   }
 
   async renameWallet(id: string, name: string): Promise<void> {
-    const w = this.wallets.find((x) => x.config.id === id);
+    const w = this.walletById(id);
     if (!w) return;
     w.config.name = name.trim() || w.config.name;
     await this.saveWalletList();
@@ -804,6 +954,11 @@ export class AppModel {
     if (this.settings.widgetWallet === id) this.settings = { ...this.settings, widgetWallet: null };
     await this.saveWalletList();
     await writeJson(SETTINGS_FILE, this.settings);
+    // A duress PIN whose decoy wallet is gone would open nothing, so it goes too (not from a decoy session)
+    if (!this.decoy) {
+      const rec = await this.readPinRecord().catch(() => null);
+      if (rec?.duress?.wallet === id) await this.writePinRecord({ ...rec, duress: null });
+    }
     this.emit();
   }
 
@@ -823,8 +978,27 @@ export class AppModel {
   }
 
   private async readSeed(id: string, prompt: string): Promise<{ mnemonic: string; passphrase: string } | null> {
-    const res = await ShrikeNative.vaultGet({ key: seedKey(id), prompt });
+    const res = await this.vaultSeed(seedKey(id), prompt);
     return res.value ? JSON.parse(res.value) : null;
+  }
+
+  /**
+   * Reads seed words from the Keychain. With the app PIN on, Face ID alone is tried first; if it doesn't confirm
+   * it's you, the app PIN is asked for, and only then does iOS offer the passcode. Someone who only knows the
+   * iPhone passcode can't get past the PIN.
+   */
+  private async vaultSeed(key: string, prompt: string): Promise<{ value: string | null }> {
+    // B: a decoy session that "turned the PIN off" reads as one with no PIN would
+    if (!this.pinOn) return ShrikeNative.vaultGet({ key, prompt });
+    const session = this.session;
+    try {
+      return await ShrikeNative.vaultGet({ key, prompt, biometricsOnly: true, fallbackTitle: 'Use PIN' });
+    } catch (e) {
+      if (errorKind(e) !== 'needs-pin') throw e;
+      // A request from a session that has since ended is never shown in the next one
+      if (session !== this.session || !(await this.askPin(prompt)) || session !== this.session) throw new Error('Cancelled');
+      return ShrikeNative.vaultGet({ key, prompt });
+    }
   }
 
   outputDescriptor(w: WalletRuntime, chain: 0 | 1): string {
@@ -836,6 +1010,38 @@ export class AppModel {
   freshReceive(w: WalletRuntime): { address: string; index: number } {
     const index = (w.snapshot?.highestUsed[0] ?? -1) + 1;
     return { address: this.addressAt(w, 0, index), index };
+  }
+
+  /**
+   * Addresses to compare a recipient with: saved contacts, addresses this phone's wallets have paid, and their
+   * own used addresses. Payments from others aren't included, since a poisoning payment's addresses are the
+   * scammer's.
+   */
+  knownAddresses(): KnownAddress[] {
+    const out: KnownAddress[] = this.networkContacts().map((c) => ({ address: c.address, kind: 'contact' as const, name: c.name }));
+    for (const w of this.networkWallets()) {
+      for (const t of w.snapshot?.txs ?? []) {
+        const sent = t.inputs.some((i) => i.mine);
+        for (const o of t.outputs) {
+          if (!o.address) continue;
+          if (o.mine) out.push({ address: o.address, kind: 'own', name: w.config.name });
+          else if (sent) out.push({ address: o.address, kind: 'paid', when: t.time });
+        }
+      }
+    }
+    return out;
+  }
+
+  /** What a recipient address matches, or looks like without matching. */
+  recipientCheck(address: string): RecipientCheck {
+    const c = checkRecipient(address, this.knownAddresses());
+    if (!c.exact && address.trim() && this.isOwnAddress(address.trim())) c.exact = { address: address.trim(), kind: 'own' };
+    return c;
+  }
+
+  /** A tiny payment from someone else: the usual way a look-alike address gets into a wallet's history. */
+  isDust(t: WalletTx): boolean {
+    return !t.coinbase && t.net > 0 && t.net < DUST_SATS && !t.inputs.some((i) => i.mine);
   }
 
   /** Whether an address belongs to one of the wallets on this phone. */
@@ -959,7 +1165,7 @@ export class AppModel {
       void this.refresh();
       throw new Error('One of these coins has already been spent. The wallet is refreshing; review the payment again.');
     }
-    const { value } = await ShrikeNative.vaultGet({ key: seedKey(w.config.id), prompt: 'Sign and send this transaction' });
+    const { value } = await this.vaultSeed(seedKey(w.config.id), 'Sign and send this transaction');
     if (!value) {
       throw new Error('The seed words for this wallet are no longer in the Keychain, which happens if the iPhone passcode was turned off. Remove the wallet and add it again with your seed words.');
     }
@@ -1008,13 +1214,17 @@ export class AppModel {
   /** Saved addresses for the current network, the most recently paid first. */
   networkContacts(): Contact[] {
     return this.contacts
-      .filter((c) => c.network === this.settings.network)
+      .filter((c) => c.network === this.settings.network && (!this.decoy || this.decoy.contacts.has(c.id)))
       .sort((a, b) => (b.lastUsed ?? 0) - (a.lastUsed ?? 0) || a.name.localeCompare(b.name));
   }
 
   contactFor(address: string): Contact | undefined {
     const a = address.trim();
-    return this.contacts.find((c) => c.network === this.settings.network && c.address === a);
+    return this.networkContacts().find((c) => c.address === a);
+  }
+
+  contactById(id: string): Contact | undefined {
+    return this.networkContacts().find((c) => c.id === id);
   }
 
   /** Adds or changes a saved address. The address must be valid on the current network. */
@@ -1023,13 +1233,14 @@ export class AppModel {
     const address = input.address.trim();
     if (!name) throw new Error('Give it a name');
     decodeAddress(address, this.net);
-    const same = this.contacts.find((c) => c.network === this.settings.network && c.address === address && c.id !== input.id);
+    const same = this.networkContacts().find((c) => c.address === address && c.id !== input.id);
     if (same) throw new Error(`This address is already saved as ${same.name}`);
     const existing = input.id ? this.contacts.find((c) => c.id === input.id) : undefined;
     const contact: Contact = existing
       ? { ...existing, name, address, note: input.note?.trim() || undefined }
       : { id: randomId(), name, address, network: this.settings.network, note: input.note?.trim() || undefined, createdAt: Date.now() };
     this.contacts = existing ? this.contacts.map((c) => (c.id === contact.id ? contact : c)) : [...this.contacts, contact];
+    this.decoy?.contacts.add(contact.id);
     await writeJson(CONTACTS_FILE, this.contacts);
     this.emit();
     return contact;
@@ -1297,9 +1508,9 @@ export class AppModel {
   // Widgets can't run Tor, so they show what the app last got: the price and one wallet's balance, with the time.
   // Every change to the app's state queues a fresh snapshot; it's handed over only when something on it changed.
 
-  /** What the widgets were last handed. */
+  /** What the widgets were last handed. In a decoy session, what this session would hand them; nothing is sent. */
   get widgetSnapshot(): WidgetSnapshot | null {
-    return this.widgetLast;
+    return this.decoy ? buildWidgetSnapshot(this.widgetInput(), this.widgetLast) : this.widgetLast;
   }
 
   /** The wallet the Balance widget shows: the one picked in Settings, or the first on this network. */
@@ -1333,7 +1544,8 @@ export class AppModel {
   }
 
   private queueWidgets(): void {
-    if (!this.ready || this.widgetTimer) return;
+    // In a decoy session the widgets keep what they had: switching them to the decoy would show on the Home Screen
+    if (!this.ready || this.widgetTimer || this.decoy) return;
     this.widgetTimer = setTimeout(() => {
       this.widgetTimer = null;
       void this.sendWidgets();
@@ -1343,6 +1555,7 @@ export class AppModel {
   /** Hands the widgets a new snapshot if anything on it changed. One at a time, in order. */
   sendWidgets(): Promise<void> {
     const run = this.widgetQueue.then(async () => {
+      if (this.decoy) return;
       const snap = buildWidgetSnapshot(this.widgetInput(), this.widgetLast);
       const json = JSON.stringify(snap);
       if (json === this.widgetJson) return;
@@ -1416,6 +1629,381 @@ export class AppModel {
     const t = this.pendingTab;
     this.pendingTab = null;
     return t;
+  }
+
+  // ------------------------------------------------------------------------------------------- backup
+  //
+  // One file with everything but secrets, sealed with a password. On a phone with nothing set up, restoring brings
+  // back the settings and the node's address; anywhere, it adds contacts and labels. Wallets aren't on the phone
+  // until their seed words are entered, so they wait, and get their labels back when they're added.
+
+  /** What a backup of this session holds. In a decoy session, only what the session shows. */
+  backupContents(): BackupContents {
+    const settings: Partial<Settings> = {};
+    for (const k of BACKUP_SETTINGS) (settings as Record<string, unknown>)[k] = this.settings[k];
+    const shown = this.wallets.filter((w) => this.shows(w));
+    if (settings.widgetWallet && !shown.some((w) => w.config.id === settings.widgetWallet)) settings.widgetWallet = null;
+    return {
+      kind: 'shrike-backup',
+      v: 1,
+      app: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '',
+      createdAt: Date.now(),
+      settings,
+      wallets: shown.map((w) => ({ config: { ...w.config }, labels: w.labels.all(), importedRange: w.importedRange })),
+      contacts: this.contacts.filter((c) => !this.decoy || this.decoy.contacts.has(c.id)),
+    };
+  }
+
+  /** Seals a backup with `password`. Returns the file's text and a name for it. */
+  async makeBackup(password: string): Promise<{ text: string; fileName: string }> {
+    const text = await encryptBackup(this.backupContents(), password);
+    await this.updateSettings({ lastBackupAt: Date.now() });
+    const d = new Date();
+    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { text, fileName: `shrike-backup-${day}.json` };
+  }
+
+  /** When a backup file was made, read before asking for its password. Throws if it isn't one. */
+  backupMadeAt(text: string): Date {
+    return new Date(readBackupHeader(text).createdAt);
+  }
+
+  async openBackup(text: string, password: string): Promise<BackupContents> {
+    return checkBackupContents(await decryptBackup(text, password));
+  }
+
+  /** Brings a backup's contents onto this phone. Nothing already here is overwritten. */
+  async restoreBackup(b: BackupContents): Promise<RestoreSummary> {
+    const summary: RestoreSummary = { settings: false, contacts: 0, labels: 0, waiting: [] };
+    if (this.wallets.length === 0 && !this.settings.node && !this.decoy) {
+      // Nothing set up yet: the backup's settings, and its node's address (the password is entered again)
+      this.settings = { ...this.settings, ...b.settings, skinTier: Math.max(this.settings.skinTier, b.settings.skinTier ?? 0) };
+      await writeJson(SETTINGS_FILE, this.settings);
+      summary.settings = true;
+    }
+    const have = new Set(this.contacts.map((c) => `${c.network}:${c.address}`));
+    const ids = new Set(this.contacts.map((c) => c.id));
+    const shownContacts = new Set(this.networkContacts().map((c) => `${c.network}:${c.address}`));
+    for (const c of b.contacts) {
+      if (have.has(`${c.network}:${c.address}`)) {
+        if (this.decoy && !shownContacts.has(`${c.network}:${c.address}`)) {
+          // Whoever restored this file knows the contact; show it, as if it were just added
+          const hidden = this.contacts.find((x) => x.network === c.network && x.address === c.address);
+          if (hidden) this.decoy.contacts.add(hidden.id);
+          summary.contacts++;
+        }
+        continue;
+      }
+      const contact = { ...c, id: ids.has(c.id) ? randomId() : c.id };
+      this.contacts.push(contact);
+      this.decoy?.contacts.add(contact.id);
+      have.add(`${c.network}:${c.address}`);
+      summary.contacts++;
+    }
+    if (summary.contacts) await writeJson(CONTACTS_FILE, this.contacts);
+    for (const bw of b.wallets) {
+      const same = (w: { config: WalletConfig }) => w.config.xpub === bw.config.xpub && w.config.network === bw.config.network;
+      const here = this.wallets.find(same);
+      if (here) {
+        // A hidden wallet in a decoy session is left alone, and reported as if it were waiting
+        if (!this.shows(here)) {
+          summary.waiting.push(bw.config.name);
+          continue;
+        }
+        const known = new Set(here.labels.all().map((r) => `${r.type}:${r.ref}`));
+        const fresh = bw.labels.filter((r) => !known.has(`${r.type}:${r.ref}`));
+        if (fresh.length) {
+          here.labels = new LabelStore([...here.labels.all(), ...fresh]);
+          await this.saveWallet(here);
+          summary.labels += fresh.length;
+        }
+      } else {
+        if (!this.restoreWaiting.some(same)) this.restoreWaiting.push(bw);
+        summary.waiting.push(bw.config.name);
+      }
+    }
+    await writeJson(RESTORE_FILE, this.restoreWaiting);
+    this.emit();
+    return summary;
+  }
+
+  /** Wallets from a restored backup on this network, waiting for their seed words. None in a decoy session. */
+  waitingWallets(): BackupWallet[] {
+    return this.decoy ? [] : this.restoreWaiting.filter((b) => b.config.network === this.settings.network);
+  }
+
+  /** The waiting wallet these seed words open, if any. */
+  restoreMatch(mnemonic: string, passphrase: string): BackupWallet | null {
+    for (const b of this.waitingWallets()) {
+      try {
+        if (deriveAccount(mnemonic, passphrase, b.config.scriptType, this.net).xpub === b.config.xpub) return b;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /** Stops waiting for a wallet's seed words. Its labels go with it. */
+  async forgetWaiting(xpub: string): Promise<void> {
+    this.restoreWaiting = this.restoreWaiting.filter((b) => !(b.config.xpub === xpub && b.config.network === this.settings.network));
+    await writeJson(RESTORE_FILE, this.restoreWaiting);
+    this.emit();
+  }
+
+  // ------------------------------------------------------------------------------------------- app PIN
+  //
+  // Six digits that stand in for the iPhone passcode when Face ID doesn't work. The Keychain item is the record of
+  // whether it's on; settings.appPin mirrors it. Checks run one at a time, and wrong PINs make the next try wait,
+  // as wrong two-factor codes do.
+
+  /** The PIN record, or null. Throws if the Keychain can't be read, so checks fail closed. */
+  private async readPinRecord(): Promise<PinRecord | null> {
+    const { value } = await ShrikeNative.vaultGet({ key: PIN_KEY, prompt: 'Check the PIN' });
+    return value ? (JSON.parse(value) as PinRecord) : null;
+  }
+
+  private async writePinRecord(r: PinRecord | null): Promise<void> {
+    if (r) await ShrikeNative.vaultSet({ key: PIN_KEY, value: JSON.stringify(r), requireAuth: false });
+    else await ShrikeNative.vaultDelete({ key: PIN_KEY });
+    if (this.settings.appPin !== (r != null)) {
+      this.settings = { ...this.settings, appPin: r != null };
+      await writeJson(SETTINGS_FILE, this.settings);
+    }
+  }
+
+  /** At launch, as for two-factor: the Keychain decides whether the PIN is on, and a fresh install drops an old one. */
+  private async syncPinFlag(freshInstall: boolean): Promise<void> {
+    let r: PinRecord | null;
+    try {
+      r = await this.readPinRecord();
+    } catch {
+      return;
+    }
+    if (freshInstall && r) {
+      await ShrikeNative.vaultDelete({ key: PIN_KEY });
+      r = null;
+    }
+    if ((r != null) !== this.settings.appPin) {
+      this.settings = { ...this.settings, appPin: r != null };
+      await writeJson(SETTINGS_FILE, this.settings);
+    }
+  }
+
+  /** Seconds before another PIN can be tried, after too many wrong ones. */
+  pinWait(): number {
+    return Math.max(0, Math.ceil((this.pinDeadline - performance.now()) / 1000));
+  }
+
+  private savePinAttempts(): Promise<void> {
+    return writeJson(PIN_ATTEMPTS_FILE, { failures: this.pinFailures, remaining: this.pinWait() } satisfies TwoFactorAttempts);
+  }
+
+  /** Whether this session was opened with the duress PIN. Only the PIN screens need to know. */
+  get inDecoy(): boolean {
+    return this.decoy != null;
+  }
+
+  /**
+   * Checks a PIN, counting wrong ones. 'any' (the lock screen) takes the real or the duress PIN. 'session' takes
+   * the one this session was opened with: the duress PIN in a decoy session, the real one otherwise.
+   */
+  private checkPin(pin: string, which: 'any' | 'session' | 'real'): Promise<'real' | 'duress'> {
+    return this.serialPin(async () => {
+      const wait = this.pinWait();
+      if (wait > 0) throw new Error(`Too many wrong PINs. Try again in ${wait < 90 ? `${wait} seconds` : `${Math.ceil(wait / 60)} minutes`}.`);
+      const rec = await this.readPinRecord();
+      if (!rec) throw new Error('The app PIN is off');
+      // Both hashes every time, so how long a check takes doesn't say whether a duress PIN exists or matched
+      const realMatch = await pinMatches(pin, rec.pin);
+      const duressMatch = await pinMatches(pin, rec.duress ?? { salt: rec.pin.salt, hash: '', rounds: rec.pin.rounds });
+      let result: PinResult = null;
+      if (realMatch) result = 'real';
+      else if (rec.duress && duressMatch) result = 'duress';
+      const want = which === 'session' ? (this.decoy ? 'duress' : 'real') : which;
+      if (result == null || (want !== 'any' && result !== want)) {
+        this.pinFailures++;
+        this.pinDeadline = performance.now() + lockoutSeconds(this.pinFailures) * 1000;
+        await this.savePinAttempts();
+        this.emit();
+        const left = this.pinWait();
+        throw new Error(left > 0 ? `That PIN isn’t right. Try again in ${left < 90 ? `${left} seconds` : `${Math.ceil(left / 60)} minutes`}.` : 'That PIN isn’t right');
+      }
+      if (this.pinFailures) {
+        this.pinFailures = 0;
+        this.pinDeadline = 0;
+        await this.savePinAttempts();
+      }
+      return result;
+    });
+  }
+
+  private serialPin<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.pinQueue.then(task, task);
+    this.pinQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  /** Whether the App PIN screen shows the PIN as on. In a decoy session, as that session left it. */
+  get pinOn(): boolean {
+    return this.decoy ? !this.decoy.pinOff : this.settings.appPin;
+  }
+
+  /** Turns the app PIN on. iOS confirms it's you first, with Face ID or the passcode. */
+  async setPin(pin: string): Promise<void> {
+    const problem = pinProblem(pin);
+    if (problem) throw new Error(problem);
+    if (this.decoy) {
+      // After a pretend "turn off": the new PIN becomes the duress PIN, so it opens this same decoy next time
+      if (!this.decoy.pinOff) throw new Error('The app PIN is already on');
+      const ok = await ShrikeNative.authenticate({ reason: 'Turn on the app PIN' });
+      if (!ok.ok) throw new Error('Cancelled');
+      const rec = await this.readPinRecord();
+      if (rec?.duress) await this.writePinRecord({ ...rec, duress: { ...(await hashPin(pin)), wallet: rec.duress.wallet } });
+      this.decoy.pinOff = false;
+      this.emit();
+      return;
+    }
+    if (await this.readPinRecord()) throw new Error('The app PIN is already on');
+    const ok = await ShrikeNative.authenticate({ reason: 'Turn on the app PIN' });
+    if (!ok.ok) throw new Error('Cancelled');
+    await this.writePinRecord({ pin: await hashPin(pin), duress: null, createdAt: Date.now() });
+    await ShrikeNative.biometryTrust({ action: 'set' }).catch(() => undefined);
+    this.faceIdChanged = false;
+    this.emit();
+  }
+
+  /** Whether Face ID's faces changed since the PIN was set. Asked by the App PIN screen. */
+  async checkFaceId(): Promise<boolean> {
+    if (!this.settings.appPin) return false;
+    const r = await ShrikeNative.biometryTrust({ action: 'check' }).catch(() => ({ changed: false }));
+    if (r.changed !== this.faceIdChanged) {
+      this.faceIdChanged = r.changed;
+      this.emit();
+    }
+    return r.changed;
+  }
+
+  /** Trusts the faces Face ID accepts now, after a change. Needs the PIN. Pretends in a decoy session. */
+  async trustFaceId(current: string): Promise<void> {
+    await this.checkPin(current, 'session');
+    if (!this.decoy) await ShrikeNative.biometryTrust({ action: 'set' });
+    this.faceIdChanged = false;
+    this.emit();
+  }
+
+  /**
+   * Changes the PIN this session was opened with. In a decoy session that's the duress PIN, so the screen looks
+   * the same and the real PIN is never touched.
+   */
+  async changePin(current: string, next: string): Promise<void> {
+    const problem = pinProblem(next);
+    if (problem) throw new Error(problem);
+    const which = await this.checkPin(current, 'session');
+    const rec = (await this.readPinRecord())!;
+    if (which === 'real') {
+      if (rec.duress && (await pinMatches(next, rec.duress))) throw new Error('That’s your duress PIN. Choose a different one.');
+      await this.writePinRecord({ ...rec, pin: await hashPin(next) });
+    } else if (rec.duress) {
+      await this.writePinRecord({ ...rec, duress: { ...(await hashPin(next)), wallet: rec.duress.wallet } });
+    }
+    this.emit();
+  }
+
+  /**
+   * Turns the app PIN off, and the duress PIN with it. Needs the PIN. In a decoy session it only looks that way: the
+   * screen shows the PIN off until the app locks, and both PINs stay as they were.
+   */
+  async disablePin(current: string): Promise<void> {
+    await this.checkPin(current, 'session');
+    if (this.decoy) {
+      this.decoy.pinOff = true;
+      this.decoy.duressShown = null;
+      this.emit();
+      return;
+    }
+    await this.writePinRecord(null);
+    await ShrikeNative.biometryTrust({ action: 'clear' }).catch(() => undefined);
+    this.faceIdChanged = false;
+    this.emit();
+  }
+
+  /**
+   * The decoy wallet's ID, if a duress PIN is set. In a decoy session, only what that session pretended to set. A
+   * duress PIN whose wallet has gone is cleared here.
+   */
+  async duressWallet(): Promise<string | null> {
+    if (this.decoy) return this.decoy.duressShown;
+    const rec = await this.readPinRecord().catch(() => null);
+    if (rec?.duress && !this.wallets.some((w) => w.config.id === rec.duress!.wallet)) {
+      await this.writePinRecord({ ...rec, duress: null });
+      return null;
+    }
+    return rec?.duress?.wallet ?? null;
+  }
+
+  /** Sets the duress PIN and the wallet it opens. Needs the app PIN. In a decoy session, only on screen. */
+  async setDuress(current: string, pin: string, walletId: string): Promise<void> {
+    const problem = pinProblem(pin);
+    if (problem) throw new Error(problem);
+    if (!this.walletById(walletId)) throw new Error('Choose a wallet on this phone');
+    if (this.decoy) {
+      await this.checkPin(current, 'session');
+      if (pin === current) throw new Error('The duress PIN has to differ from your app PIN');
+      this.decoy.duressShown = walletId;
+      this.emit();
+      return;
+    }
+    await this.checkPin(current, 'real');
+    const rec = (await this.readPinRecord())!;
+    if (await pinMatches(pin, rec.pin)) throw new Error('The duress PIN has to differ from your app PIN');
+    await this.writePinRecord({ ...rec, duress: { ...(await hashPin(pin)), wallet: walletId } });
+    // The Home Screen shows before any PIN is typed: its Balance widget shows the decoy, as the session will
+    if (this.settings.widgetBalance) await this.updateSettings({ widgetWallet: walletId === this.networkWallets()[0]?.config.id ? null : walletId });
+    this.emit();
+  }
+
+  async clearDuress(current: string): Promise<void> {
+    if (this.decoy) {
+      await this.checkPin(current, 'session');
+      this.decoy.duressShown = null;
+      this.emit();
+      return;
+    }
+    await this.checkPin(current, 'real');
+    const rec = (await this.readPinRecord())!;
+    await this.writePinRecord({ ...rec, duress: null });
+    this.emit();
+  }
+
+  /** Asks the screens for the app PIN. Resolves true once the right one is typed, false if cancelled. */
+  private askPin(reason: string): Promise<boolean> {
+    this.pinAsk?.resolve(false);
+    return new Promise((resolve) => {
+      const ask: NonNullable<AppModel['pinAsk']> = {
+        reason,
+        resolve: (ok) => {
+          // A newer request may have taken this one's place; only this one is answered
+          if (this.pinAsk === ask) this.pinAsk = null;
+          this.emit();
+          resolve(ok);
+        },
+      };
+      this.pinAsk = ask;
+      this.emit();
+    });
+  }
+
+  /** The PIN typed for a pending request. Throws with a message if it's wrong. */
+  async answerPin(pin: string): Promise<void> {
+    const ask = this.pinAsk;
+    if (!ask) return;
+    await this.checkPin(pin, 'session');
+    ask.resolve(true);
+  }
+
+  cancelPin(): void {
+    this.pinAsk?.resolve(false);
   }
 
   // ------------------------------------------------------------------------------------------- two-factor

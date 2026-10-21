@@ -29,6 +29,7 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "scanQr", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openUrl", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "copyPrivately", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "biometryTrust", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "widgetsUpdate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "widgetsInstalled", returnType: CAPPluginReturnPromise),
     ]
@@ -195,31 +196,62 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let prompt = call.getString("prompt") ?? "Confirm it’s you"
+        let biometricsOnly = call.getBool("biometricsOnly") ?? false
+        let fallbackTitle = call.getString("fallbackTitle") ?? "Use PIN"
         DispatchQueue.global(qos: .userInitiated).async {
             let context = LAContext()
             context.localizedReason = prompt
-            var query = self.baseQuery(key)
-            query[kSecReturnData as String] = true
-            query[kSecMatchLimit as String] = kSecMatchLimitOne
-            query[kSecUseAuthenticationContext as String] = context
-            var item: CFTypeRef?
-            let status = SecItemCopyMatching(query as CFDictionary, &item)
-            switch status {
-            case errSecSuccess:
-                if let data = item as? Data, let value = String(data: data, encoding: .utf8) {
-                    call.resolve(["value": value])
-                } else {
-                    call.reject("The stored value could not be read")
-                }
-            case errSecItemNotFound:
-                call.resolve(["value": NSNull()])
-            case errSecUserCanceled:
-                call.reject("Cancelled")
-            case errSecAuthFailed:
-                call.reject("Face ID did not confirm it’s you")
-            default:
-                call.reject("The Keychain could not read this (error \(status))")
+            guard biometricsOnly else {
+                self.readItem(key, context: context, call: call)
+                return
             }
+            // With the app PIN on: Face ID alone, with "Use PIN" in place of the iPhone passcode. If Face ID can't
+            // confirm it's you, the page asks for the app PIN and then reads the item the usual way. On success the
+            // same context goes to the Keychain, so it doesn't ask again.
+            context.localizedFallbackTitle = fallbackTitle
+            var error: NSError?
+            guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
+                call.reject("Face ID isn’t available", "needs-pin")
+                return
+            }
+            guard !self.biometryChanged(context) else {
+                call.reject("Face ID on this iPhone changed since the app PIN was set", "needs-pin")
+                return
+            }
+            context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: prompt) { ok, _ in
+                guard ok else {
+                    call.reject("Face ID didn’t confirm it’s you", "needs-pin")
+                    return
+                }
+                DispatchQueue.global(qos: .userInitiated).async {
+                    self.readItem(key, context: context, call: call)
+                }
+            }
+        }
+    }
+
+    private func readItem(_ key: String, context: LAContext, call: CAPPluginCall) {
+        var query = baseQuery(key)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        query[kSecUseAuthenticationContext as String] = context
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        switch status {
+        case errSecSuccess:
+            if let data = item as? Data, let value = String(data: data, encoding: .utf8) {
+                call.resolve(["value": value])
+            } else {
+                call.reject("The stored value could not be read")
+            }
+        case errSecItemNotFound:
+            call.resolve(["value": NSNull()])
+        case errSecUserCanceled:
+            call.reject("Cancelled")
+        case errSecAuthFailed:
+            call.reject("Face ID did not confirm it’s you")
+        default:
+            call.reject("The Keychain could not read this (error \(status))")
         }
     }
 
@@ -238,6 +270,23 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
         let reason = call.getString("reason") ?? "Open Shrike"
         let context = LAContext()
         var error: NSError?
+        if call.getBool("biometricsOnly") ?? false {
+            // With the app PIN on: Face ID alone. "Use PIN", a cancel or a failure all send the page to its PIN pad
+            context.localizedFallbackTitle = call.getString("fallbackTitle") ?? "Use PIN"
+            guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
+                call.resolve(["ok": false, "pin": true])
+                return
+            }
+            // A face added since the PIN was set (iOS lets anyone with the passcode add one) doesn't count
+            guard !biometryChanged(context) else {
+                call.resolve(["ok": false, "pin": true, "changed": true])
+                return
+            }
+            context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { ok, _ in
+                call.resolve(["ok": ok, "pin": !ok])
+            }
+            return
+        }
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
             // No passcode on the device, so there is nothing to check against
             call.resolve(["ok": true])
@@ -245,6 +294,54 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
         }
         context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { ok, _ in
             call.resolve(["ok": ok])
+        }
+    }
+
+    // MARK: Face ID enrollment, while the app PIN is on
+
+    private static let biometryStateKey = "biometry-state"
+
+    /// The Face ID enrollment trusted when the app PIN was set, or last confirmed with the PIN. nil if none.
+    private func trustedBiometryState() -> Data? {
+        var query = baseQuery(Self.biometryStateKey)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var item: CFTypeRef?
+        return SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess ? item as? Data : nil
+    }
+
+    /// Whether the faces Face ID accepts have changed since they were trusted. iOS changes this value when a face or
+    /// an alternate appearance is added or removed. With nothing trusted, it counts as changed: fail closed.
+    /// `context` must have been through canEvaluatePolicy for biometrics.
+    private func biometryChanged(_ context: LAContext) -> Bool {
+        guard let current = context.evaluatedPolicyDomainState, let trusted = trustedBiometryState() else { return true }
+        return current != trusted
+    }
+
+    /// set: trust the faces Face ID accepts now. clear: forget them. check: whether they've changed.
+    @objc func biometryTrust(_ call: CAPPluginCall) {
+        let action = call.getString("action") ?? "check"
+        DispatchQueue.global(qos: .userInitiated).async {
+            let context = LAContext()
+            var error: NSError?
+            let available = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+            let base = self.baseQuery(Self.biometryStateKey)
+            switch action {
+            case "set":
+                SecItemDelete(base as CFDictionary)
+                if available, let state = context.evaluatedPolicyDomainState {
+                    var add = base
+                    add[kSecValueData as String] = state
+                    add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+                    SecItemAdd(add as CFDictionary, nil)
+                }
+                call.resolve(["changed": false])
+            case "clear":
+                SecItemDelete(base as CFDictionary)
+                call.resolve(["changed": false])
+            default:
+                call.resolve(["changed": available ? self.biometryChanged(context) : false])
+            }
         }
     }
 

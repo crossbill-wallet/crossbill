@@ -2,7 +2,7 @@ import { useEffect, useReducer, useState } from 'react';
 import { StatusBar, Style } from '@capacitor/status-bar';
 import { applyLook, onSystemThemeChange, resolveTheme } from '../app/look';
 import { isNative } from '../app/native';
-import { NavProvider, TabBar, useApp, useNav, type Route } from './kit';
+import { NavProvider, Screen, TabBar, useApp, useNav, type Route } from './kit';
 import { Home } from './Home';
 import { Market } from './Market';
 import { ContactEdit, Contacts } from './Contacts';
@@ -13,6 +13,8 @@ import { Appearance, Donate, ExplorerScreen, ReplayScreen, Settings, WalletInfo 
 import { AddWallet, NodeForm, Welcome } from './Setup';
 import { RecoveryCodes, TwoFactorScreen, TwoFactorSetup } from './TwoFactor';
 import { WidgetsScreen } from './Widgets';
+import { FaceIdGlyph, PinPad, PinScreen, PinSheet } from './Pin';
+import { BackupScreen, RestoreBackup } from './Backup';
 
 /** When the page started, so the first lock screen after launch can hold the bird a little longer. */
 const BOOT = Date.now();
@@ -50,11 +52,12 @@ function useStatusBar(onBand: boolean) {
 function Lock() {
   useStatusBar(true);
   const app = useApp();
-  const [phase, setPhase] = useState<'hold' | 'asking' | 'failed'>('hold');
+  const [phase, setPhase] = useState<'hold' | 'asking' | 'failed' | 'pin'>('hold');
   const ask = () => {
     setPhase('asking');
-    void app.unlock().then((ok) => {
-      if (!ok) setPhase('failed');
+    void app.unlock().then((r) => {
+      if (r === 'pin') setPhase('pin');
+      else if (r === 'failed') setPhase('failed');
     });
   };
   useEffect(() => {
@@ -63,9 +66,20 @@ function Lock() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
-    <div className="lock">
+    <div className={`lock${phase === 'pin' ? ' pin' : ''}`}>
       <img src="./bird.png" alt="" />
       <div className="lock-name">Shrike</div>
+      {phase === 'pin' && (
+        <div className="lock-pin">
+          <PinPad
+            tone="band"
+            title="Enter your PIN"
+            detail={app.faceIdChanged ? 'Face ID changed on this iPhone since you set the PIN, so Shrike asks for the PIN. To use Face ID again, go to Settings, App PIN.' : undefined}
+            onComplete={(pin) => app.unlockWithPin(pin)}
+            extra={app.faceIdChanged ? undefined : { label: <FaceIdGlyph />, aria: 'Try Face ID again', onClick: ask }}
+          />
+        </div>
+      )}
       <div className={`lock-actions${phase === 'failed' ? ' on' : ''}`} aria-hidden={phase !== 'failed'}>
         <button className="btn primary" onClick={ask} tabIndex={phase === 'failed' ? 0 : -1}>
           Open with Face ID
@@ -78,9 +92,20 @@ function Lock() {
 
 function Onboarding() {
   const app = useApp();
-  const [step, setStep] = useState<'welcome' | 'node' | 'wallet'>(app.settings.node ? 'wallet' : 'welcome');
+  const [step, setStep] = useState<'welcome' | 'restore' | 'node' | 'wallet'>(app.settings.node ? 'wallet' : 'welcome');
   useStatusBar(step === 'welcome');
-  if (step === 'welcome') return <Welcome onStart={() => setStep('node')} />;
+  if (step === 'welcome') return <Welcome onStart={() => setStep('node')} onRestore={() => setStep('restore')} />;
+  if (step === 'restore') {
+    return (
+      <Screen title="Restore" back={false} end={<button onClick={() => setStep('welcome')}>Back</button>}>
+        <p style={{ marginTop: 0 }}>
+          Choose the backup file you saved from Shrike, then enter its password. Your settings, contacts and node’s address come back. Then enter the node’s password, and each wallet’s seed words: backups
+          don’t hold either.
+        </p>
+        <RestoreBackup onRestored={(s) => setTimeout(() => setStep(s.settings && app.settings.node ? 'node' : 'welcome'), 1800)} />
+      </Screen>
+    );
+  }
   if (step === 'node') return <NodeForm back={false} onSaved={() => setStep('wallet')} />;
   return <AddWallet back={false} onDone={() => undefined} />;
 }
@@ -124,6 +149,10 @@ function Current({ route }: { route: Route }) {
       return <Donate />;
     case 'widgets':
       return <WidgetsScreen />;
+    case 'pin':
+      return <PinScreen />;
+    case 'backup':
+      return <BackupScreen />;
   }
 }
 
@@ -207,12 +236,14 @@ export function Root() {
     return (
       <NavProvider>
         <Onboarding />
+        <PinSheet />
       </NavProvider>
     );
   }
   return (
     <NavProvider>
       <Main />
+      <PinSheet />
     </NavProvider>
   );
 }

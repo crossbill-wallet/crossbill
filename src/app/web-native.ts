@@ -96,7 +96,8 @@ export class ShrikeNativeWeb extends WebPlugin implements ShrikeNativePlugin {
     memoryVault.set(opts.key, opts.value);
   }
 
-  async vaultGet(opts: { key: string }): Promise<{ value: string | null }> {
+  async vaultGet(opts: { key: string; biometricsOnly?: boolean }): Promise<{ value: string | null }> {
+    if (opts.biometricsOnly && devFaceIdFails()) throw new Refused('Face ID didn’t confirm it’s you', 'needs-pin');
     return { value: memoryVault.get(opts.key) ?? null };
   }
 
@@ -104,8 +105,25 @@ export class ShrikeNativeWeb extends WebPlugin implements ShrikeNativePlugin {
     memoryVault.delete(opts.key);
   }
 
-  async authenticate(): Promise<{ ok: boolean }> {
+  /**
+   * localStorage 'shrike.devFaceId' = 'fail' makes Face ID fail, to see the PIN pad in a browser; 'changed' acts as
+   * if a face was added since the PIN was set.
+   */
+  async authenticate(opts: { biometricsOnly?: boolean }): Promise<{ ok: boolean; pin?: boolean; changed?: boolean }> {
+    if (opts.biometricsOnly && devFaceId() === 'changed') return { ok: false, pin: true, changed: true };
+    if (opts.biometricsOnly && devFaceIdFails()) return { ok: false, pin: true };
     return { ok: true };
+  }
+
+  async biometryTrust(opts: { action: 'set' | 'clear' | 'check' }): Promise<{ changed: boolean }> {
+    if (opts.action === 'set') {
+      try {
+        if (devFaceId() === 'changed') localStorage.removeItem('shrike.devFaceId');
+      } catch {
+        // storage refused
+      }
+    }
+    return { changed: opts.action === 'check' && devFaceId() === 'changed' };
   }
 
   async biometryType(): Promise<{ type: 'none' }> {
@@ -151,6 +169,19 @@ export class ShrikeNativeWeb extends WebPlugin implements ShrikeNativePlugin {
       }),
     };
   }
+}
+
+function devFaceId(): string | null {
+  try {
+    return localStorage.getItem('shrike.devFaceId');
+  } catch {
+    return null;
+  }
+}
+
+function devFaceIdFails(): boolean {
+  const v = devFaceId();
+  return v === 'fail' || v === 'changed';
 }
 
 function devWidgets(): string[] | null {

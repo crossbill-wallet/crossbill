@@ -59,7 +59,7 @@ export function Contacts() {
 export function ContactEdit({ id, address, label }: { id?: string; address?: string; label?: string }) {
   const app = useApp();
   const nav = useNav();
-  const existing = id ? app.contacts.find((c) => c.id === id) : undefined;
+  const existing = id ? app.contactById(id) : undefined;
   const [name, setName] = useState(existing?.name ?? label ?? '');
   const [addr, setAddr] = useState(existing?.address ?? address ?? '');
   const [note, setNote] = useState(existing?.note ?? '');

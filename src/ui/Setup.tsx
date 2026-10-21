@@ -9,7 +9,7 @@ import { nodeAddressFields } from '../core/rpc';
 import { seedWordsFeedback, WORD_COUNTS } from '../core/seedwords';
 import { Choice, Field, ReplayStatus, Screen, ScreenshotWarning, SecondFactorField, Toggle, codeReady, useApp, useNav, useScreenshotAlert } from './kit';
 
-export function Welcome({ onStart }: { onStart: () => void }) {
+export function Welcome({ onStart, onRestore }: { onStart: () => void; onRestore: () => void }) {
   return (
     <div className="welcome">
       <img src="./bird.png" alt="" />
@@ -19,6 +19,9 @@ export function Welcome({ onStart }: { onStart: () => void }) {
       <div className="spacer" />
       <button className="btn primary" onClick={onStart}>
         Connect your node
+      </button>
+      <button className="btn quiet" onClick={onRestore}>
+        Restore from a backup
       </button>
     </div>
   );
@@ -173,7 +176,7 @@ export function AddWallet({ back = true, onDone, seedFrom }: { back?: boolean; o
   const app = useApp();
   const nav = useNav();
   // Opening another wallet's seed words with a passphrase. The words come from the Keychain, behind Face ID
-  const source = seedFrom ? app.wallets.find((x) => x.config.id === seedFrom) : undefined;
+  const source = seedFrom ? app.walletById(seedFrom) : undefined;
   const [step, setStep] = useState<Step>(source ? 'pass' : 'choose');
   const [mode, setMode] = useState<'restore' | 'create'>('restore');
   const [count, setCount] = useState<number>(24);
@@ -189,10 +192,12 @@ export function AddWallet({ back = true, onDone, seedFrom }: { back?: boolean; o
   const [scriptType, setScriptType] = useState<ScriptType>(source?.config.scriptType ?? 'P2WPKH');
   const [rescan, setRescan] = useState<RescanChoice>({ kind: 'date' });
   const [since, setSince] = useState('');
-  const [name, setName] = useState(source ? `${source.config.name} (passphrase)` : app.wallets.length ? `Wallet ${app.wallets.length + 1}` : 'My wallet');
+  const [name, setName] = useState(source ? `${source.config.name} (passphrase)` : app.networkWallets().length ? `Wallet ${app.networkWallets().length + 1}` : 'My wallet');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState('');
+  const [restored, setRestored] = useState<string | null>(null);
+  const waiting = app.waitingWallets();
   const shot = useScreenshotAlert(step === 'words' || step === 'new' || step === 'verify');
 
   // The last word counts as finished after a pause, so a pasted seed is judged without needing a trailing space
@@ -224,6 +229,13 @@ export function AddWallet({ back = true, onDone, seedFrom }: { back?: boolean; o
       } else {
         setRescan(mode === 'create' ? { kind: 'new' } : { kind: 'date' });
       }
+      // Seed words for a wallet from a restored backup: its name and address type come back with it
+      const match = mode === 'restore' && !source ? app.restoreMatch(mnemonic, effectivePassphrase) : null;
+      setRestored(match ? match.config.name : null);
+      if (match) {
+        setName(match.config.name);
+        if (!f.length || f.includes(match.config.scriptType)) setScriptType(match.config.scriptType);
+      }
       setStep('type');
     } catch (e) {
       setError(friendlyError(e));
@@ -235,6 +247,11 @@ export function AddWallet({ back = true, onDone, seedFrom }: { back?: boolean; o
   if (step === 'choose') {
     return (
       <Screen title="Add a wallet" back={back}>
+        {waiting.length > 0 && (
+          <div className="banner on-banner">
+            From your backup, waiting for seed words: {waiting.map((b) => b.config.name).join(', ')}. Choose Use my seed words and enter them; each comes back with its labels.
+          </div>
+        )}
         <Choice checked={mode === 'restore'} onSelect={() => setMode('restore')} title="Use my seed words" detail="The wallet you already have in Shrike on your computer, or any BIP39 seed." />
         <Choice checked={mode === 'create'} onSelect={() => setMode('create')} title="Create a new wallet" detail="New 24 seed words, made on this phone." />
         <div style={{ height: 12 }} />
@@ -408,6 +425,7 @@ export function AddWallet({ back = true, onDone, seedFrom }: { back?: boolean; o
   const rescanReady = rescan.kind !== 'date' || Number.isFinite(sinceUnix);
   return (
     <Screen title="Wallet details" back={false} end={<button onClick={() => setStep(source ? 'pass' : mode === 'create' ? 'new' : 'words')}>Back</button>}>
+      {restored && <div className="banner on-banner">This is {restored} from your backup. Its labels and frozen coins come back with it.</div>}
       {found && found.length > 0 ? (
         <div className="banner">Your node already watches this wallet for Shrike on your computer, so its history is ready with no scan.</div>
       ) : null}

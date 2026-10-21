@@ -1,5 +1,19 @@
 # Changes
 
+## 0.3.0
+
+New:
+
+- **App PIN.** Six digits for Shrike alone, in Settings, App PIN. With it on, Shrike opens with Face ID only: when Face ID doesn't work, it asks for the PIN instead of the iPhone passcode, both to open the app and before reading seed words to sign. Someone who has seen your passcode still can't open your wallets. Wrong PINs make the next try wait longer each time.
+- **Face ID changes are caught.** Anyone who knows the passcode can add a face to Face ID. If the faces Face ID accepts change after the PIN is set, Shrike stops opening with Face ID alone and asks for the PIN until you confirm in Settings, App PIN that the change was yours.
+- **Duress PIN.** Optional, beside the app PIN. If someone forces you to open Shrike, cancel Face ID and type the duress PIN: Shrike opens showing one wallet you choose and nothing that says others exist. The App PIN screen looks and acts as usual in that session, and nothing about it is saved. Setting one moves the Balance widget to that wallet, so the Home Screen matches.
+- **Backup file.** Settings, Backup saves one file with everything but secrets: wallet names and details, labels, frozen coins, contacts, settings and your node's address, encrypted with a password you choose (scrypt and XChaCha20-Poly1305). Restore it on a new iPhone from the welcome screen, or in Settings to add what's missing. Wallets come back with their labels once you enter their seed words. Seed words, the node's password, the two-factor key and the app PIN are never in it.
+- **Address-poisoning checks.** When you pay an address that matches one you know at the start and the end without being the same (a saved contact, an address you've paid, one of your own), Send says so under the address, and Review shows both side by side with the differences marked and won't send until you confirm you've checked every character. Review also says when you haven't paid an address before. A tiny payment from someone else is marked on its transaction screen, with a button to freeze the coin.
+
+Changed:
+
+- Adds `@noble/ciphers` for the backup file's encryption. After updating, run `npm install` before `npm run ios:sync`.
+
 ## 0.2.2
 
 New:

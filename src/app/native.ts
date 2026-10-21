@@ -38,11 +38,11 @@ export interface TorRepairResult {
  * Codes native errors carry, besides the message. "refused" means the proxy on the phone refused the connection,
  * so the request never left the phone.
  */
-export type NativeErrorKind = 'refused' | 'timeout' | 'offline' | 'network';
+export type NativeErrorKind = 'refused' | 'timeout' | 'offline' | 'network' | 'needs-pin';
 
 export function errorKind(e: unknown): NativeErrorKind | undefined {
   const code = (e as { code?: unknown } | null)?.code;
-  return code === 'refused' || code === 'timeout' || code === 'offline' || code === 'network' ? code : undefined;
+  return code === 'refused' || code === 'timeout' || code === 'offline' || code === 'network' || code === 'needs-pin' ? code : undefined;
 }
 
 /** Why the widgets can't be handed anything: the build has no App Group, or this is the browser stand-in. */
@@ -76,9 +76,20 @@ export interface ShrikeNativePlugin {
    * reading it asks for Face ID, Touch ID or the passcode every time (kSecAccessControlUserPresence).
    */
   vaultSet(opts: { key: string; value: string; requireAuth: boolean }): Promise<void>;
-  vaultGet(opts: { key: string; prompt: string }): Promise<{ value: string | null }>;
+  /**
+   * Reads a Keychain item. With biometricsOnly (the app PIN is on), Face ID alone is tried first, with "Use PIN"
+   * instead of the iPhone passcode, and a failure rejects with code "needs-pin" so the page can ask for the PIN.
+   */
+  vaultGet(opts: { key: string; prompt: string; biometricsOnly?: boolean; fallbackTitle?: string }): Promise<{ value: string | null }>;
   vaultDelete(opts: { key: string }): Promise<void>;
-  authenticate(opts: { reason: string }): Promise<{ ok: boolean }>;
+  /** Face ID, or the passcode. With biometricsOnly, Face ID alone; pin is true when the app PIN should be asked for instead. */
+  authenticate(opts: { reason: string; biometricsOnly?: boolean; fallbackTitle?: string }): Promise<{ ok: boolean; pin?: boolean; changed?: boolean }>;
+  /**
+   * The faces Face ID accepts, while the app PIN is on. set trusts the current ones, clear forgets them, check says
+   * whether they've changed. Once they change (anyone with the passcode can add a face), Face ID alone no longer
+   * opens the app or reads seed words until they're trusted again with the PIN.
+   */
+  biometryTrust(opts: { action: 'set' | 'clear' | 'check' }): Promise<{ changed: boolean }>;
   biometryType(): Promise<{ type: 'faceId' | 'touchId' | 'opticId' | 'none' }>;
   scanQr(): Promise<{ value: string | null }>;
   /** Opens a link in Safari, or an onionhttp(s) link in Onion Browser. opened is false if no app takes it. */
