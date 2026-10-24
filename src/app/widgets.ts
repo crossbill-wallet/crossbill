@@ -34,7 +34,7 @@ export interface WidgetPrice {
   /** "+1.50%" over 24 hours, or null if the exchange didn't say */
   change: string | null;
   direction: 'up' | 'down' | 'flat' | null;
-  /** unix ms Shrike got this price */
+  /** unix ms Crossbill got this price */
   at: number;
   /** Closing prices over the last day, oldest first, for the chart. null until fetched */
   points: number[] | null;

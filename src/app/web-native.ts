@@ -130,9 +130,53 @@ export class ShrikeNativeWeb extends WebPlugin implements ShrikeNativePlugin {
     return { type: 'none' };
   }
 
-  async scanQr(): Promise<{ value: string | null }> {
-    return { value: window.prompt('Paste what the QR code holds') };
+  private scanDone: ((v: string | null) => void) | null = null;
+
+  /**
+   * The camera, in a browser. One code is asked for with a prompt. For parts, localStorage 'shrike.devScan' can
+   * hold a JSON list of codes to feed in, a frame every 150 ms, as an animated code would arrive; without it,
+   * each code is asked for in turn until one is left empty.
+   */
+  async scanQr(opts?: { parts?: boolean; title?: string }): Promise<{ value: string | null }> {
+    if (!opts?.parts) return { value: window.prompt('Paste what the QR code holds') };
+    let feed: string[] | null = null;
+    try {
+      const raw = localStorage.getItem('shrike.devScan');
+      feed = raw ? (JSON.parse(raw) as string[]) : null;
+    } catch {
+      feed = null;
+    }
+    const done = new Promise<string | null>((resolve) => (this.scanDone = resolve));
+    void (async () => {
+      for (let i = 0; this.scanDone; i++) {
+        let value: string | null;
+        if (feed) {
+          await pause(150);
+          value = i < feed.length ? feed[i] : null;
+        } else {
+          await pause(0);
+          value = window.prompt(`${opts.title ?? 'Scan'}: paste a code, or leave it empty to stop`);
+        }
+        if (!this.scanDone) return;
+        if (!value) {
+          this.scanDone(null);
+          this.scanDone = null;
+          return;
+        }
+        this.notifyListeners('qrPart', { value });
+      }
+    })();
+    return { value: await done };
   }
+
+  async scanQrProgress(): Promise<void> {}
+
+  async scanQrFinish(): Promise<void> {
+    this.scanDone?.('finished');
+    this.scanDone = null;
+  }
+
+  async keepAwake(): Promise<void> {}
 
   async copyPrivately(opts: { text: string }): Promise<void> {
     await navigator.clipboard.writeText(opts.text);

@@ -12,11 +12,11 @@ export interface Skin {
   minSats: number;
 }
 
-/** Each skin is named for a shrike. The band stays dark in all of them, so the status bar reads the same. */
+/** Each skin is named for a crossbill. The ids are the ones 0.3.0 saved, so settings and backups keep their skin. The band stays dark in all of them, so the status bar reads the same. */
 export const SKINS: Skin[] = [
-  { id: 'shrike', name: 'Shrike', detail: 'The black mask, ember edges and the cyan eye.', minSats: 0 },
-  { id: 'redback', name: 'Red-backed', detail: 'Chestnut and warm amber, after the red-backed shrike.', minSats: 10_000_000 },
-  { id: 'northern', name: 'Northern', detail: 'Night blue with an aurora glow, after the northern shrike.', minSats: 100_000_000 },
+  { id: 'shrike', name: 'Crossbill', detail: 'Black, with ember edges and the cyan eye, like the icon.', minSats: 0 },
+  { id: 'redback', name: 'Red', detail: 'Chestnut and warm amber, after the red crossbill.', minSats: 10_000_000 },
+  { id: 'northern', name: 'White-winged', detail: 'Night blue with an aurora glow, after the white-winged crossbill of the northern forests.', minSats: 100_000_000 },
   { id: 'gilded', name: 'Gilded', detail: 'Black and gold.', minSats: 1_000_000_000 },
 ];
 

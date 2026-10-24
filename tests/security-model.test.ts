@@ -377,7 +377,7 @@ describe('backups', () => {
     fake.state.vault.set('rpc-password', 'hunter2-node');
     await m.setPin('204816');
     const { text, fileName } = await m.makeBackup('correct horse battery');
-    expect(fileName).toMatch(/^shrike-backup-\d{4}-\d{2}-\d{2}\.json$/);
+    expect(fileName).toMatch(/^crossbill-backup-\d{4}-\d{2}-\d{2}\.json$/);
     for (const secret of ['abandon', 'hunter2', 'Rent', 'abc.onion', 'xpub-w1']) expect(text).not.toContain(secret);
     const b = await m.openBackup(text, 'correct horse battery');
     expect(b.wallets[0].config.name).toBe('Spending');
@@ -403,7 +403,7 @@ describe('backups', () => {
     fake.state.vault.clear();
     const fresh = await model();
     const s = await fresh.restoreBackup(await fresh.openBackup(text, 'correct horse battery'));
-    expect(s).toEqual({ settings: true, contacts: 1, labels: 0, waiting: ['Spending'] });
+    expect(s).toEqual({ settings: true, contacts: 1, labels: 0, waiting: ['Spending'], kruxWaiting: [] });
     expect(fresh.settings.node?.host).toBe('abc.onion');
     expect(fresh.settings.appearance).toBe('dark');
     expect(fresh.networkContacts()[0].name).toBe('Exchange');
@@ -438,13 +438,13 @@ describe('backups', () => {
       contacts: [{ id: 'c9', name: 'Exchange', address: 'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh', network: 'mainnet' as const, createdAt: 1 }],
     };
     const s = await m.restoreBackup(backup);
-    expect(s).toEqual({ settings: false, contacts: 1, labels: 1, waiting: [] });
+    expect(s).toEqual({ settings: false, contacts: 1, labels: 1, waiting: [], kruxWaiting: [] });
     expect(m.settings.unit).toBe('BTC');
     expect(m.wallets[0].config.name).toBe('Spending');
     expect(m.wallets[0].labels.get('tx', 'aa'.repeat(32))).toBe('Rent');
     expect(m.wallets[0].labels.get('tx', 'cc'.repeat(32))).toBe('Groceries');
     // Again: nothing new
-    expect(await m.restoreBackup(backup)).toEqual({ settings: false, contacts: 0, labels: 0, waiting: [] });
+    expect(await m.restoreBackup(backup)).toEqual({ settings: false, contacts: 0, labels: 0, waiting: [], kruxWaiting: [] });
   });
 });
 

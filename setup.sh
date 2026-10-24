@@ -1,5 +1,5 @@
 #!/bin/bash
-# Gets Shrike for iPhone ready to install from a Mac, in one go:
+# Gets Crossbill ready to install from a Mac, in one go:
 #   1. checks Xcode is installed
 #   2. installs Node.js and CocoaPods with Homebrew if they're missing
 #   3. sets a bundle ID of your own
@@ -52,12 +52,12 @@ echo "Node.js $(node --version), CocoaPods $(pod --version)"
 
 step "3/5  Your app's bundle ID"
 CURRENT=$(sed -nE "s/.*appId: '([^']+)'.*/\1/p" capacitor.config.ts | head -1)
-echo "Apple identifies the app by a bundle ID that has to be yours alone, such as com.yourname.shrike."
+echo "Apple identifies the app by a bundle ID that has to be yours alone, such as com.yourname.crossbill."
 BID=""
 read -r -p "Bundle ID [$CURRENT]: " BID || true
 BID=${BID:-$CURRENT}
 [[ "$BID" =~ ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ ]] ||
-  fail "\"$BID\" isn't a bundle ID. Use letters, numbers and dashes, separated by dots, such as com.yourname.shrike."
+  fail "\"$BID\" isn't a bundle ID. Use letters, numbers and dashes, separated by dots, such as com.yourname.crossbill."
 sed -i '' -E "s/appId: '[^']+'/appId: '$BID'/" capacitor.config.ts
 sed -i '' -E "s/PRODUCT_BUNDLE_IDENTIFIER = [^;]+;/PRODUCT_BUNDLE_IDENTIFIER = $BID;/" ios/App/App.xcodeproj/project.pbxproj
 echo "Using $BID"

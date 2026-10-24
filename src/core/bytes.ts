@@ -54,6 +54,13 @@ export function u32le(n: number): Bytes {
   return out;
 }
 
+export function u32be(n: number): Bytes {
+  if (!Number.isInteger(n) || n < 0 || n > 0xffffffff) throw new Error(`uint32 out of range: ${n}`);
+  const out = new Uint8Array(4);
+  new DataView(out.buffer).setUint32(0, n, false);
+  return out;
+}
+
 export function i32le(n: number): Bytes {
   const out = new Uint8Array(4);
   new DataView(out.buffer).setInt32(0, n, true);

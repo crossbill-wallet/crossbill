@@ -62,7 +62,7 @@ export type Route =
   | { name: 'tx'; txid: string }
   | { name: 'bump'; txid: string; cancel?: boolean }
   | { name: 'node' }
-  | { name: 'add-wallet'; seedFrom?: string }
+  | { name: 'add-wallet'; seedFrom?: string; krux?: boolean; words?: boolean }
   | { name: 'wallet-info'; id: string }
   | { name: 'contact'; id?: string; address?: string; label?: string }
   | { name: 'two-factor' }
@@ -72,7 +72,10 @@ export type Route =
   | { name: 'donate' }
   | { name: 'widgets' }
   | { name: 'pin' }
-  | { name: 'backup' };
+  | { name: 'backup' }
+  | { name: 'hardware' }
+  | { name: 'krux-link'; id: string; removeOnly?: boolean }
+  | { name: 'krux-sign' };
 
 interface Nav {
   stack: Route[];
@@ -403,7 +406,7 @@ export function SecondFactorField({ value, onChange, id = 'otp', autoFocus }: { 
           ? `Too many wrong codes. Try again in ${wait < 90 ? `${wait} seconds` : `${Math.ceil(wait / 60)} minutes`}.`
           : recovery
             ? 'Each recovery code works once.'
-            : 'The 6 digits your authenticator shows for Shrike. They change every 30 seconds.'}
+            : 'The 6 digits your authenticator shows for Crossbill. They change every 30 seconds.'}
       </div>
       <button
         type="button"

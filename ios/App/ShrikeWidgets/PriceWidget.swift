@@ -1,14 +1,14 @@
 import SwiftUI
 import WidgetKit
 
-/// The XBT price Shrike last got from Neoxa Exchange, through Tor, with the day's change and chart.
+/// The XBT price Crossbill last got from Neoxa Exchange, through Tor, with the day's change and chart.
 struct PriceWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "ShrikePrice", provider: ShrikeProvider()) { entry in
             PriceWidgetView(entry: entry)
         }
         .configurationDisplayName("XBT price")
-        .description("The last price Shrike got from Neoxa Exchange through Tor. It changes when you open Shrike.")
+        .description("The last price Crossbill got from Neoxa Exchange through Tor. It changes when you open Crossbill.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular])
     }
 }
@@ -28,7 +28,7 @@ struct PriceWidgetView: View {
                     if family.isLockScreen { Color.clear } else { palette.background }
                 }
         }
-        .widgetURL(URL(string: "shrike://market"))
+        .widgetURL(URL(string: "crossbill://market"))
     }
 
     /// Paper and ink, light or dark as set in the app (or as the iPhone is, for Match iPhone).
@@ -53,10 +53,10 @@ struct PriceWidgetView: View {
             }
         } else {
             let (title, detail) = s == nil
-                ? ("XBT price", "Open Shrike to show the price here.")
+                ? ("XBT price", "Open Crossbill to show the price here.")
                 : s?.prices == false
-                    ? ("Prices are off", "Turn on XBT price in Shrike’s Settings.")
-                    : ("No price yet", "Open Shrike’s Market tab to get it.")
+                    ? ("Prices are off", "Turn on XBT price in Crossbill’s Settings.")
+                    : ("No price yet", "Open Crossbill’s Market tab to get it.")
             switch family {
             case .accessoryCircular:
                 ZStack {

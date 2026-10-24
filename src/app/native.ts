@@ -91,7 +91,16 @@ export interface ShrikeNativePlugin {
    */
   biometryTrust(opts: { action: 'set' | 'clear' | 'check' }): Promise<{ changed: boolean }>;
   biometryType(): Promise<{ type: 'faceId' | 'touchId' | 'opticId' | 'none' }>;
-  scanQr(): Promise<{ value: string | null }>;
+  /**
+   * Scans a QR code. With parts, for a hardware wallet's animated codes, the scanner stays open and each new code
+   * read fires 'qrPart'; scanQrProgress shows how far along it is and scanQrFinish closes it, resolving with
+   * "finished". Cancelling resolves with null either way.
+   */
+  scanQr(opts?: { parts?: boolean; title?: string }): Promise<{ value: string | null }>;
+  scanQrProgress(opts: { text: string; reset?: boolean }): Promise<void>;
+  scanQrFinish(): Promise<void>;
+  /** Keeps the screen awake while on, as while the Krux reads codes off it. */
+  keepAwake(opts: { on: boolean }): Promise<void>;
   /** Opens a link in Safari, or an onionhttp(s) link in Onion Browser. opened is false if no app takes it. */
   openUrl(opts: { url: string }): Promise<{ opened: boolean }>;
   /** Copies text that stays on this device (no Universal Clipboard) and clears itself after `seconds`. */
@@ -101,10 +110,12 @@ export interface ShrikeNativePlugin {
    * them. ok is false with reason "no-app-group" when this build has no App Group to share with the widgets.
    */
   widgetsUpdate(opts: { snapshot: string | null }): Promise<{ ok: boolean; reason?: WidgetTrouble }>;
-  /** The Shrike widgets on the Home Screen and Lock Screen right now, and whether the App Group is set up. */
+  /** The Crossbill widgets on the Home Screen and Lock Screen right now, and whether the App Group is set up. */
   widgetsInstalled(): Promise<{ ok: boolean; reason?: WidgetTrouble; widgets: { kind: string; family: string }[] }>;
   /** Fires when the person takes a screenshot. iOS can't block one, so screens showing seed words warn instead. */
   addListener(eventName: 'screenshot', listener: () => void): Promise<PluginListenerHandle>;
+  /** Each new code a parts scanner reads. */
+  addListener(eventName: 'qrPart', listener: (e: { value: string }) => void): Promise<PluginListenerHandle>;
 }
 
 export const ShrikeNative = registerPlugin<ShrikeNativePlugin>('ShrikeNative', {

@@ -55,8 +55,8 @@ describe('backup file', () => {
 
   it('refuses short passwords, other files, newer formats and costs that could exhaust memory', async () => {
     await expect(encryptBackup(contents, 'short', FAST)).rejects.toThrow(/at least 8/);
-    expect(() => readBackupHeader('{"labels": []}')).toThrow(/isn’t a Shrike backup/);
-    expect(() => readBackupHeader('not json')).toThrow(/isn’t a Shrike backup/);
+    expect(() => readBackupHeader('{"labels": []}')).toThrow(/isn’t a Crossbill backup/);
+    expect(() => readBackupHeader('not json')).toThrow(/isn’t a Crossbill backup/);
     const text = await encryptBackup(contents, 'correct horse battery', FAST);
     const f = JSON.parse(text);
     expect(() => readBackupHeader(JSON.stringify({ ...f, shrikeBackup: 2 }))).toThrow(/newer version/);

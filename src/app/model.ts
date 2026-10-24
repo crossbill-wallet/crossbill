@@ -4,10 +4,10 @@
 import { App as CapApp } from '@capacitor/app';
 import { DEFAULT_EXPLORER } from '../core/explorer';
 import { cormorantDescriptor, normalizeDescriptor, originDescriptor } from '../core/descriptor';
-import { AccountKey, deriveAccount, normalizeMnemonic } from '../core/keys';
+import { AccountKey, deriveAccount, deriveAccountPrivate, normalizeMnemonic } from '../core/keys';
 import { LabelStore, type LabelRecord, type LabelType } from '../core/labels';
 import { NETWORKS, type NetworkName, type NetworkParams } from '../core/network';
-import { chainDecision, isOptedIn, type ReplayDecision } from '../core/replay';
+import { chainDecision, DECISION_TEXT, isOptedIn, type ReplayDecision } from '../core/replay';
 import { KnotsRpc, RpcError, TransportError, type HttpTransport } from '../core/rpc';
 import { decodeAddress, encodeAddress, outputScript, type ScriptType, SCRIPT_TYPES } from '../core/script';
 import { signDraft, type SignedTransaction } from '../core/signer';
@@ -51,6 +51,8 @@ import {
 import { hashPin, pinMatches, pinProblem, type PinHash } from '../core/pin';
 import { decryptBackup, encryptBackup, readBackupHeader } from '../core/backup';
 import { checkRecipient, DUST_SATS, type KnownAddress, type RecipientCheck } from '../core/poison';
+import { buildPsbt, finalizeFromDevice, type PsbtWallet, type SignedFromDevice } from '../core/psbt';
+import { matchWallet, parseHardwareKey, type HardwareKey } from '../core/hwkey';
 import { BACKUP_SETTINGS, checkBackupContents, type BackupContents, type BackupWallet } from './backup';
 import { skinIndex, tierFor, SKINS, type Appearance, type FontId, type SkinId } from './look';
 import { errorKind, isNative, ShrikeNative, type TorHealth } from './native';
@@ -113,6 +115,8 @@ export interface RestoreSummary {
   labels: number;
   /** Wallets that come back with their labels once their seed words are entered */
   waiting: string[];
+  /** Wallets that signed only on a Krux, which come back by scanning its key */
+  kruxWaiting: string[];
 }
 
 /** What the app PIN's Keychain record holds: hashes only. The duress PIN and its decoy wallet live only here. */
@@ -132,7 +136,7 @@ export type UnlockResult = 'ok' | 'pin' | 'failed';
 export interface WidgetState {
   /** ok: they get what the app hands them. no-app-group: this build can't share with them. web: not an iPhone */
   status: 'unknown' | 'ok' | 'no-app-group' | 'web';
-  /** The Shrike widgets on the Home Screen and Lock Screen */
+  /** The Crossbill widgets on the Home Screen and Lock Screen */
   installed: { kind: string; family: string }[];
   /** unix ms the app last handed the widgets something new */
   sentAt: number;
@@ -199,7 +203,7 @@ export interface PriceState {
 class TorStuckError extends Error {}
 
 const TOR_STUCK =
-  'Tor on this iPhone stopped responding while Shrike was in the background, and the app can’t restart it by itself. Close Shrike (swipe it away in the app switcher) and open it again.';
+  'Tor on this iPhone stopped responding while Crossbill was in the background, and the app can’t restart it by itself. Close Crossbill (swipe it away in the app switcher) and open it again.';
 
 const sleep = (ms: number) => (ms > 0 ? new Promise<void>((r) => setTimeout(r, ms)) : Promise.resolve());
 
@@ -229,6 +233,31 @@ export interface WalletConfig {
   gapLimit: number;
   createdAt: number;
   hasPassphrase: boolean;
+  /**
+   * Where its transactions are signed: with the seed words on this iPhone, on a Krux hardware wallet, or either.
+   * Absent on wallets from before 0.4.0, which means this iPhone.
+   */
+  signer?: Signer;
+}
+
+export type Signer = 'phone' | 'krux' | 'both';
+
+export function signerOf(c: WalletConfig): Signer {
+  return c.signer ?? 'phone';
+}
+
+/** A send waiting for the Krux's signature, kept here so locking the app doesn't lose it. */
+export interface KruxSigning {
+  walletId: string;
+  draft: DraftTransaction;
+  /** The PSBT shown to the Krux */
+  psbt: Uint8Array;
+  label?: string;
+  /** For a fee bump or cancel: the transaction this replaces */
+  replaces?: string;
+  /** The transaction once the Krux's signatures are in, checked and ready to send */
+  signed: SignedFromDevice | null;
+  createdAt: number;
 }
 
 export interface WalletRuntime {
@@ -487,7 +516,7 @@ export class AppModel {
    */
   async unlock(): Promise<UnlockResult> {
     if (this.settings.appPin) {
-      const res = await ShrikeNative.authenticate({ reason: 'Open Shrike', biometricsOnly: true, fallbackTitle: 'Use PIN' });
+      const res = await ShrikeNative.authenticate({ reason: 'Open Crossbill', biometricsOnly: true, fallbackTitle: 'Use PIN' });
       if (res.changed && !this.faceIdChanged) {
         this.faceIdChanged = true;
         this.emit();
@@ -496,7 +525,7 @@ export class AppModel {
       this.opened(null);
       return 'ok';
     }
-    const res = await ShrikeNative.authenticate({ reason: 'Open Shrike' });
+    const res = await ShrikeNative.authenticate({ reason: 'Open Crossbill' });
     if (!res.ok) return 'failed';
     this.opened(null);
     return 'ok';
@@ -517,6 +546,7 @@ export class AppModel {
     this.session++;
     this.cancelPin();
     this.decoy = decoy;
+    if (decoy) this.kruxSigning = null;
     if (decoy) {
       // Straight to the decoy wallet; if it isn't on this network, the app looks like it has none here yet
       this.activeId = this.networkWallets()[0]?.config.id ?? null;
@@ -654,6 +684,8 @@ export class AppModel {
     await ShrikeNative.vaultSet({ key: RPC_PASSWORD_KEY, value: password, requireAuth: false });
     await this.updateSettings({ node, network });
     this.rpc = null;
+    // A send waiting for the Krux was built on the old node and network
+    this.kruxSigning = null;
     if (!this.networkWallets().some((w) => w.config.id === this.activeId)) {
       this.activeId = this.networkWallets()[0]?.config.id ?? null;
     }
@@ -851,7 +883,11 @@ export class AppModel {
     return found;
   }
 
-  async addWallet(input: { name: string; mnemonic: string; passphrase: string; scriptType: ScriptType; rescan: RescanChoice }): Promise<void> {
+  /**
+   * Adds a wallet from its seed words, which go into the Keychain. For a wallet already here that signs only on the
+   * Krux, its seed words go back on this iPhone instead, so it can sign on either. Returns which happened.
+   */
+  async addWallet(input: { name: string; mnemonic: string; passphrase: string; scriptType: ScriptType; rescan: RescanChoice }): Promise<'added' | 'seed-back'> {
     const mnemonic = normalizeMnemonic(input.mnemonic);
     const acct = deriveAccount(mnemonic, input.passphrase, input.scriptType, this.net);
     const already = this.wallets.find((w) => w.config.xpub === acct.xpub && w.config.network === this.settings.network);
@@ -860,11 +896,31 @@ export class AppModel {
       this.decoy.wallets.add(already.config.id);
       this.activeId = already.config.id;
       this.emit();
-      return;
+      return 'added';
+    }
+    // A wallet that signs only on the Krux, at whatever account it uses: these seed words go back on this iPhone
+    const kruxOnly = this.networkWallets().find((w) => {
+      if (signerOf(w.config) !== 'krux') return false;
+      try {
+        return deriveAccountPrivate(mnemonic, input.passphrase, w.config.derivation, this.net).account.publicExtendedKey === w.config.xpub;
+      } catch {
+        return false;
+      }
+    });
+    if (kruxOnly) {
+      await ShrikeNative.vaultSet({ key: seedKey(kruxOnly.config.id), value: JSON.stringify({ mnemonic, passphrase: input.passphrase }), requireAuth: true });
+      kruxOnly.config.signer = 'both';
+      kruxOnly.config.hasPassphrase = input.passphrase.length > 0;
+      // Signing on this iPhone checks the fingerprint, so it's the one these seed words give
+      kruxOnly.config.fingerprint = deriveAccountPrivate(mnemonic, input.passphrase, kruxOnly.config.derivation, this.net).fingerprint;
+      this.activeId = kruxOnly.config.id;
+      await this.saveWalletList();
+      this.emit();
+      return 'seed-back';
     }
     if (already) throw new Error('This wallet is already on the phone');
     // A wallet from a restored backup gets its labels, frozen coins and address window back
-    const restored = this.restoreWaiting.find((b) => b.config.xpub === acct.xpub && b.config.network === this.settings.network);
+    const restored = this.waitingWallets().find((b) => b.config.xpub === acct.xpub);
     const config: WalletConfig = {
       // A restored wallet keeps its old ID, so settings that name it (the Balance widget's wallet) still do
       id: restored && !this.wallets.some((w) => w.config.id === restored.config.id) ? restored.config.id : randomId(),
@@ -877,13 +933,21 @@ export class AppModel {
       gapLimit: restored ? Math.max(DEFAULT_GAP_LIMIT, restored.config.gapLimit) : DEFAULT_GAP_LIMIT,
       createdAt: restored?.config.createdAt ?? Date.now(),
       hasPassphrase: input.passphrase.length > 0,
+      // A wallet the backup says was linked to the Krux is still on the Krux
+      signer: restored && signerOf(restored.config) !== 'phone' ? 'both' : 'phone',
     };
     const w = this.runtimeFor(config, null);
     if (restored) w.labels = new LabelStore(restored.labels);
 
     // The seed goes to the Keychain first, behind Face ID, before anything else is saved
     await ShrikeNative.vaultSet({ key: seedKey(config.id), value: JSON.stringify({ mnemonic, passphrase: input.passphrase }), requireAuth: true });
+    await this.installWallet(w, input.rescan, restored);
+    return 'added';
+  }
 
+  /** Has the node watch a new wallet's addresses (scanning for its history if asked), then adds it to the phone. */
+  private async installWallet(w: WalletRuntime, rescan: RescanChoice, restored: BackupWallet | undefined): Promise<void> {
+    const config = w.config;
     const rpc = await this.getRpc();
     await ensureCormorantWallet(rpc);
     const imported = await listImportedDescriptors(rpc);
@@ -891,7 +955,7 @@ export class AppModel {
     if (have && imported.has(w.descriptors.change)) {
       w.importedRange = have.range;
     } else {
-      const since = input.rescan.kind === 'new' ? ('now' as const) : input.rescan.kind === 'date' ? input.rescan.since! : 0;
+      const since = rescan.kind === 'new' ? ('now' as const) : rescan.kind === 'date' ? rescan.since! : 0;
       this.conn = { phase: 'importing', message: since === 'now' ? 'Adding the wallet to your node' : 'Your node is scanning for this wallet’s history', progress: 0 };
       this.emit();
       try {
@@ -948,6 +1012,7 @@ export class AppModel {
   /** Removes the wallet from this phone only. The node and the desktop app are untouched. */
   async removeWallet(id: string): Promise<void> {
     await ShrikeNative.vaultDelete({ key: seedKey(id) });
+    if (this.kruxSigning?.walletId === id) this.kruxSigning = null;
     await removeJson(`wallet-${id}.json`);
     this.wallets = this.wallets.filter((w) => w.config.id !== id);
     if (this.activeId === id) this.activeId = this.networkWallets()[0]?.config.id ?? null;
@@ -1155,16 +1220,11 @@ export class AppModel {
    * Sends, fee raises and cancels all come through here.
    */
   async signAndBroadcast(w: WalletRuntime, draft: DraftTransaction, label?: string, replaces?: string, code?: string): Promise<SignedTransaction> {
+    if (signerOf(w.config) === 'krux') throw new Error(`${w.config.name} signs on your Krux, not on this iPhone.`);
     if (draft.unified !== this.replayOptIn()) throw new Error('Replay protection changed since this was built. Go back and review it again.');
     await this.checkSecondFactor(code);
     const rpc = await this.getRpc();
-    // Every coin must still be unspent. A replacement's coins are spent by the transaction it replaces, so for
-    // those only the confirmed UTXO set is asked; for a normal send the mempool counts too.
-    const checks = await rpc.batch(draft.coins.map((c) => ({ method: 'gettxout', params: [c.txid, c.vout, !replaces] })));
-    if (checks.some((r) => !r.ok || r.result == null)) {
-      void this.refresh();
-      throw new Error('One of these coins has already been spent. The wallet is refreshing; review the payment again.');
-    }
+    await this.checkCoinsUnspent(draft, replaces);
     const { value } = await this.vaultSeed(seedKey(w.config.id), 'Sign and send this transaction');
     if (!value) {
       throw new Error('The seed words for this wallet are no longer in the Keychain, which happens if the iPhone passcode was turned off. Remove the wallet and add it again with your seed words.');
@@ -1172,16 +1232,195 @@ export class AppModel {
     const secret = JSON.parse(value) as { mnemonic: string; passphrase: string };
     const signed = signDraft(draft, secret, w.config.scriptType, w.config.derivation, w.config.fingerprint, NETWORKS[w.config.network]);
     await broadcast(rpc, signed.hex);
-    // Spent at once in this wallet's view, before the node's wallet catches up
-    addPendingTransaction(w.store, signed.txid, signed.hex, replaces);
+    await this.afterBroadcast(w, draft, signed.txid, signed.hex, label, replaces);
+    return signed;
+  }
+
+  /**
+   * Every coin must still be unspent. A replacement's coins are spent by the transaction it replaces, so for those
+   * only the confirmed UTXO set is asked; for a normal send the mempool counts too.
+   */
+  private async checkCoinsUnspent(draft: DraftTransaction, replaces?: string): Promise<void> {
+    const rpc = await this.getRpc();
+    const checks = await rpc.batch(draft.coins.map((c) => ({ method: 'gettxout', params: [c.txid, c.vout, !replaces] })));
+    if (checks.some((r) => !r.ok || r.result == null)) {
+      void this.refresh();
+      throw new Error('One of these coins has already been spent. The wallet is refreshing; review the payment again.');
+    }
+  }
+
+  /** After a send reaches the node: spent at once in this wallet's view, before the node's wallet catches up, and labelled. */
+  private async afterBroadcast(w: WalletRuntime, draft: DraftTransaction, txid: string, hex: string, label?: string, replaces?: string): Promise<void> {
+    addPendingTransaction(w.store, txid, hex, replaces);
     this.recompute(w);
     const txLabel = label ?? draft.outputs.map((o) => o.payment?.label).filter(Boolean).join(', ');
-    if (txLabel) w.labels.set('tx', signed.txid, txLabel);
+    if (txLabel) w.labels.set('tx', txid, txLabel);
     await this.saveWallet(w);
     await this.touchContacts(draft.outputs.map((o) => o.payment?.address).filter((a): a is string => !!a));
     this.emit();
     void this.refresh();
+  }
+
+  // ------------------------------------------------------------------------------------------- Krux hardware wallet
+  //
+  // A wallet can sign on Paperclip's Krux: the phone builds the transaction and shows it as a PSBT (BBQr codes, or a
+  // file for microSD), the Krux shows what it pays and signs it, and the phone reads the signed PSBT back, checks
+  // every signature against the wallet's own keys and sends it. The Krux's approval is the check, so no Face ID or
+  // two-factor code is asked for these sends.
+
+  /** Reads the key a Krux shows. Throws a HardwareKeyError saying what to change on the Krux. */
+  readKruxKey(text: string): HardwareKey {
+    return parseHardwareKey(text, this.net);
+  }
+
+  /** What a Krux's key is to this phone: a wallet already here, one waiting in a restored backup, or neither. */
+  kruxKeyFor(key: HardwareKey): { wallet: WalletRuntime | null; waiting: BackupWallet | null } {
+    const wallet = this.networkWallets().find((w) => w.config.xpub === key.xpub) ?? null;
+    const waiting = wallet ? null : (this.waitingWallets().find((b) => b.config.xpub === key.xpub) ?? null);
+    return { wallet, waiting };
+  }
+
+  /** Whether the node already watches this key's addresses, so adding it needs no scan. */
+  async kruxOnNode(key: HardwareKey): Promise<boolean> {
+    const rpc = await this.getRpc();
+    await ensureCormorantWallet(rpc);
+    const imported = await listImportedDescriptors(rpc);
+    const src = { scriptType: key.scriptType, xpub: key.xpub, fingerprint: key.fingerprint, derivation: key.derivation };
+    return imported.has(normalizeDescriptor(cormorantDescriptor(src, 0))) && imported.has(normalizeDescriptor(cormorantDescriptor(src, 1)));
+  }
+
+  /** Adds a wallet that signs on the Krux. The phone holds its public key only: no seed words. */
+  async addKruxWallet(input: { name: string; key: HardwareKey; rescan: RescanChoice }): Promise<void> {
+    const { key } = input;
+    const already = this.wallets.find((w) => w.config.xpub === key.xpub && w.config.network === this.settings.network);
+    if (already && this.decoy && !this.shows(already)) {
+      // Whoever holds the Krux can spend from the wallet anyway; saying it's already here would say more
+      this.decoy.wallets.add(already.config.id);
+      this.activeId = already.config.id;
+      this.emit();
+      return;
+    }
+    if (already) {
+      throw new Error(
+        signerOf(already.config) === 'phone'
+          ? `That’s ${already.config.name}, already on this phone with its seed words. To sign it on the Krux, link the two in Settings, Wallets, ${already.config.name}.`
+          : `${already.config.name} is already on this phone, signed on the Krux.`,
+      );
+    }
+    // None in a duress session: a backup restored in a real session stays out of it
+    const restored = this.waitingWallets().find((b) => b.config.xpub === key.xpub);
+    const config: WalletConfig = {
+      id: restored && !this.wallets.some((w) => w.config.id === restored.config.id) ? restored.config.id : randomId(),
+      name: input.name.trim() || 'Krux',
+      network: this.settings.network,
+      scriptType: key.scriptType,
+      fingerprint: key.fingerprint,
+      derivation: key.derivation,
+      xpub: key.xpub,
+      gapLimit: restored ? Math.max(DEFAULT_GAP_LIMIT, restored.config.gapLimit) : DEFAULT_GAP_LIMIT,
+      createdAt: restored?.config.createdAt ?? Date.now(),
+      hasPassphrase: false,
+      signer: 'krux',
+    };
+    const w = this.runtimeFor(config, null);
+    if (restored) w.labels = new LabelStore(restored.labels);
+    await this.installWallet(w, input.rescan, restored);
+  }
+
+  /**
+   * Links a wallet whose seed words are on this phone to a Krux holding the same ones, once the Krux's key proves
+   * it. removeSeed takes the seed words off this iPhone, so the wallet signs only on the Krux.
+   */
+  async linkKrux(id: string, key: HardwareKey, removeSeed: boolean): Promise<void> {
+    const w = this.walletById(id);
+    if (!w) throw new Error('That wallet isn’t on this phone');
+    if (signerOf(w.config) === 'krux') throw new Error(`${w.config.name} already signs on the Krux.`);
+    const m = matchWallet(key, { ...w.config });
+    if (!m.ok) throw new Error(m.reason);
+    w.config.signer = removeSeed ? 'krux' : 'both';
+    await this.saveWalletList();
+    if (removeSeed) await ShrikeNative.vaultDelete({ key: seedKey(id) });
+    this.emit();
+  }
+
+  /** Stops offering the Krux for a wallet whose seed words are still on this iPhone. */
+  async unlinkKrux(id: string): Promise<void> {
+    const w = this.walletById(id);
+    if (!w || signerOf(w.config) !== 'both') return;
+    w.config.signer = 'phone';
+    await this.saveWalletList();
+    this.emit();
+  }
+
+  /** A send waiting for the Krux, kept across a lock. Not shown in another session's place. */
+  kruxSigning: KruxSigning | null = null;
+
+  private psbtWallet(w: WalletRuntime, draft: DraftTransaction): PsbtWallet {
+    return {
+      scriptType: w.config.scriptType,
+      fingerprint: w.config.fingerprint,
+      derivation: w.config.derivation,
+      pubKey: (c, i) => w.key.pubKey(c, i),
+      prevTx: (id) => w.store.hex[id],
+      ownOutput: (script) => {
+        const hex = toHex(script);
+        const found = w.index.find(hex);
+        if (found) return found;
+        if (draft.change && w.index.script(1, draft.change.index) === hex) return { chain: 1, index: draft.change.index };
+        return null;
+      },
+    };
+  }
+
+  /** Builds the PSBT for the Krux to sign. Nothing is asked for here: approving it on the Krux is the check. */
+  async startKruxSigning(w: WalletRuntime, draft: DraftTransaction, label?: string, replaces?: string): Promise<KruxSigning> {
+    if (signerOf(w.config) === 'phone') throw new Error(`${w.config.name} isn’t linked to a Krux.`);
+    if (draft.unified !== this.replayOptIn()) throw new Error('Replay protection changed since this was built. Go back and review it again.');
+    if (!draft.unified) {
+      throw new Error(`Your Krux only signs replay-protected transactions, and right now this one wouldn’t be. ${DECISION_TEXT[this.replayDecision()].reason ?? ''}`.trim());
+    }
+    await this.checkCoinsUnspent(draft, replaces);
+    const psbt = buildPsbt(draft, this.psbtWallet(w, draft));
+    this.kruxSigning = { walletId: w.config.id, draft, psbt, label, replaces, signed: null, createdAt: Date.now() };
+    this.emit();
+    return this.kruxSigning;
+  }
+
+  /** Takes the Krux's signed PSBT. Throws, saying what's wrong, unless every signature checks out. */
+  acceptKruxSignature(data: Uint8Array): SignedFromDevice {
+    const s = this.kruxSigning;
+    if (!s) throw new Error('There’s no send waiting for the Krux.');
+    const w = this.walletById(s.walletId);
+    if (!w) throw new Error('That wallet isn’t on this phone.');
+    const signed = finalizeFromDevice(s.draft, this.psbtWallet(w, s.draft), data);
+    this.kruxSigning = { ...s, signed };
+    this.emit();
     return signed;
+  }
+
+  /** Sends what the Krux signed. Returns the txid. */
+  async sendKruxSigned(): Promise<string> {
+    const s = this.kruxSigning;
+    if (!s?.signed) throw new Error('Nothing signed to send yet.');
+    const w = this.walletById(s.walletId);
+    if (!w) throw new Error('That wallet isn’t on this phone.');
+    const rpc = await this.getRpc();
+    await this.checkCoinsUnspent(s.draft, s.replaces);
+    await broadcast(rpc, s.signed.hex);
+    this.kruxSigning = null;
+    try {
+      await this.afterBroadcast(w, s.draft, s.signed.txid, s.signed.hex, s.label, s.replaces);
+    } catch {
+      // It's sent: the wallet catches up at the next refresh
+      this.emit();
+    }
+    return s.signed.txid;
+  }
+
+  cancelKruxSigning(): void {
+    if (!this.kruxSigning) return;
+    this.kruxSigning = null;
+    this.emit();
   }
 
   // ------------------------------------------------------------------------------------------- labels
@@ -1388,7 +1627,7 @@ export class AppModel {
       const r = await ShrikeNative.torRepair({ newCircuit: newRoute });
       if (!r.ok) throw r.stage === 'socks' ? new TorStuckError('Tor couldn’t open a new local port') : new TorStuckError(TOR_STUCK);
       // Another request may have done the reopening a moment ago; what the check found is what happened
-      note = !h.socks ? 'iOS had closed it while Shrike was in the background. Reopened' : 'Reconnected';
+      note = !h.socks ? 'iOS had closed it while Crossbill was in the background. Reopened' : 'Reconnected';
     } else if (newRoute) {
       label('Pick a new route through Tor');
       await ShrikeNative.torRepair({ newCircuit: true });
@@ -1429,7 +1668,7 @@ export class AppModel {
         title: 'Tor on this iPhone stopped responding',
         short: 'Couldn’t reattach to Tor',
         detail:
-          'iOS closed Tor’s connections while Shrike was in the background, and this time the app couldn’t reopen them. Close Shrike (swipe it away in the app switcher) and open it again. Your wallets aren’t affected.',
+          'iOS closed Tor’s connections while Crossbill was in the background, and this time the app couldn’t reopen them. Close Crossbill (swipe it away in the app switcher) and open it again. Your wallets aren’t affected.',
         canGoDirect: viaTor,
         technical,
       };
@@ -1577,7 +1816,7 @@ export class AppModel {
     return run;
   }
 
-  /** Asks iOS which Shrike widgets are on screen. A price widget gets the price fetched for it. */
+  /** Asks iOS which Crossbill widgets are on screen. A price widget gets the price fetched for it. */
   async checkWidgets(): Promise<void> {
     try {
       const r = await ShrikeNative.widgetsInstalled();
@@ -1616,9 +1855,9 @@ export class AppModel {
     return this.dayChartReq;
   }
 
-  /** A widget was tapped: shrike://market or shrike://wallet. Anything else is ignored. */
+  /** A widget was tapped: crossbill://market or crossbill://wallet. Anything else is ignored. */
   openLink(url: string): void {
-    const m = /^shrike:\/\/(market|wallet)\/?$/i.exec(url.trim());
+    const m = /^crossbill:\/\/(market|wallet)\/?$/i.exec(url.trim());
     if (!m) return;
     this.pendingTab = m[1].toLowerCase() === 'market' ? 'market' : 'home';
     this.emit();
@@ -1660,7 +1899,7 @@ export class AppModel {
     await this.updateSettings({ lastBackupAt: Date.now() });
     const d = new Date();
     const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    return { text, fileName: `shrike-backup-${day}.json` };
+    return { text, fileName: `crossbill-backup-${day}.json` };
   }
 
   /** When a backup file was made, read before asking for its password. Throws if it isn't one. */
@@ -1674,7 +1913,7 @@ export class AppModel {
 
   /** Brings a backup's contents onto this phone. Nothing already here is overwritten. */
   async restoreBackup(b: BackupContents): Promise<RestoreSummary> {
-    const summary: RestoreSummary = { settings: false, contacts: 0, labels: 0, waiting: [] };
+    const summary: RestoreSummary = { settings: false, contacts: 0, labels: 0, waiting: [], kruxWaiting: [] };
     if (this.wallets.length === 0 && !this.settings.node && !this.decoy) {
       // Nothing set up yet: the backup's settings, and its node's address (the password is entered again)
       this.settings = { ...this.settings, ...b.settings, skinTier: Math.max(this.settings.skinTier, b.settings.skinTier ?? 0) };
@@ -1707,7 +1946,8 @@ export class AppModel {
       if (here) {
         // A hidden wallet in a decoy session is left alone, and reported as if it were waiting
         if (!this.shows(here)) {
-          summary.waiting.push(bw.config.name);
+          if (signerOf(bw.config) === 'krux') summary.kruxWaiting.push(bw.config.name);
+          else summary.waiting.push(bw.config.name);
           continue;
         }
         const known = new Set(here.labels.all().map((r) => `${r.type}:${r.ref}`));
@@ -1719,7 +1959,8 @@ export class AppModel {
         }
       } else {
         if (!this.restoreWaiting.some(same)) this.restoreWaiting.push(bw);
-        summary.waiting.push(bw.config.name);
+        if (signerOf(bw.config) === 'krux') summary.kruxWaiting.push(bw.config.name);
+        else summary.waiting.push(bw.config.name);
       }
     }
     await writeJson(RESTORE_FILE, this.restoreWaiting);
@@ -2059,7 +2300,7 @@ export class AppModel {
       if (await this.readTwoFactorOrNull()) throw new Error('Two-factor is already on');
       const step = verifyTotp(decodeSecret(secretB32), code, Date.now() / 1000);
       if (step == null) {
-        throw new Error('That code doesn’t match. Check the authenticator shows the Shrike entry you just added, and that this iPhone sets its clock automatically.');
+        throw new Error('That code doesn’t match. Check the authenticator shows the Crossbill entry you just added, and that this iPhone sets its clock automatically.');
       }
       const codes = newRecoveryCodes();
       await this.writeTwoFactor({ secret: secretB32, recovery: codes.map(hashRecoveryCode), lastStep: step, createdAt: Date.now() });

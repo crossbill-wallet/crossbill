@@ -2,8 +2,10 @@ import { useMemo, useState } from 'react';
 import { decodeAddress } from '../core/script';
 import { formatAmount, formatFeeRate, parseAmount, unitLabel, type Unit } from '../core/units';
 import type { DraftTransaction, Payment } from '../core/txbuilder';
-import { friendlyError, toCoin, type WalletRuntime } from '../app/model';
+import { friendlyError, signerOf, toCoin, type WalletRuntime } from '../app/model';
 import { ShrikeNative } from '../app/native';
+import type { ReplayDecision } from '../core/replay';
+import { KruxSign } from './Krux';
 import { Address, Amount, Field, RecipientNote, ReplayStatus, Screen, SecondFactorField, Sheet, Toggle, codeReady, describeKnown, parsePaymentText, shortAddress, useApp, useNav } from './kit';
 
 interface Recipient {
@@ -352,12 +354,15 @@ export function Review({ w, draft, onBack, onDone, title = 'Review', replacing }
   const [sent, setSent] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const [checked, setChecked] = useState(false);
+  const [onKrux, setOnKrux] = useState(false);
+  const signer = signerOf(w.config);
   const payments = draft.outputs.filter((o) => !o.isChange);
   const checks = payments.map((o) => app.recipientCheck(o.payment?.address ?? ''));
   const lookalike = !replacing && checks.some((c) => c.lookalikes.length > 0);
   const total = payments.reduce((s, o) => s + o.value, 0) + draft.fee;
   const decision = app.replayDecision();
-  const needCode = app.settings.twoFactor;
+  // A send signed on the Krux asks for nothing here: approving it on the Krux is the check
+  const needCode = app.settings.twoFactor && signer !== 'krux';
   // Addresses paid that aren't saved yet and aren't this phone's own wallets, to offer saving after the send
   const [unsaved] = useState(() =>
     payments
@@ -365,24 +370,34 @@ export function Review({ w, draft, onBack, onDone, title = 'Review', replacing }
       .filter((p) => p.address && !app.contactFor(p.address) && !app.isOwnAddress(p.address)),
   );
 
-  if (sent) {
+  if (sent) return <SentView total={total} txid={sent} decision={decision} unsaved={replacing ? [] : unsaved} onDone={onDone} />;
+
+  if (onKrux && app.kruxSigning) {
     return (
-      <Screen title="Sent" back={false}>
-        <div className="big-amount" style={{ marginTop: 20 }}>
-          <Amount sats={total} unit={unit} />
-        </div>
-        <p>Your node accepted the transaction and is relaying it.</p>
-        <ReplayStatus decision={decision} compact />
-        <div className="section-title">Transaction ID</div>
-        <div className="txid">{sent}</div>
-        {!replacing && unsaved.map((p) => <SaveAddress key={p.address} address={p.address} label={p.label} />)}
-        <div style={{ height: 28 }} />
-        <button className="btn primary" onClick={onDone}>
-          Done
-        </button>
-      </Screen>
+      <KruxSign
+        onCancel={() => {
+          app.cancelKruxSigning();
+          setOnKrux(false);
+        }}
+        onSent={setSent}
+      />
     );
   }
+
+  const original = replacing ? w.snapshot?.txs.find((t) => t.txid === replacing) : undefined;
+  const label = original ? app.txLabel(w, original) : undefined;
+  const toKrux = async () => {
+    setSending(true);
+    setError(null);
+    try {
+      await app.startKruxSigning(w, draft, label, replacing);
+      setOnKrux(true);
+    } catch (e) {
+      setError(friendlyError(e));
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
     <div className="screen">
@@ -476,32 +491,72 @@ export function Review({ w, draft, onBack, onDone, title = 'Review', replacing }
         )}
         {needCode && <SecondFactorField value={code} onChange={setCode} />}
         {error && <div className="banner error">{error}</div>}
-        <button
-          className="btn primary"
-          disabled={sending || (needCode && !codeReady(code)) || (lookalike && !checked)}
-          onClick={async () => {
-            setSending(true);
-            setError(null);
-            try {
-              const original = replacing ? w.snapshot?.txs.find((t) => t.txid === replacing) : undefined;
-              const s = await app.signAndBroadcast(w, draft, original ? app.txLabel(w, original) : undefined, replacing, needCode ? code : undefined);
-              setSent(s.txid);
-            } catch (e) {
-              setError(friendlyError(e));
-              // A code is used up once accepted, so it never stays in the field for another try
-              setCode('');
-            } finally {
-              setSending(false);
-            }
-          }}
-        >
-          {sending ? 'Signing and sending' : 'Sign and send'}
-        </button>
-        <p className="note" style={{ textAlign: 'center' }}>
-          {needCode ? 'After the code, Face ID opens the seed for this one signature only.' : 'Face ID opens the seed for this one signature only.'}
-        </p>
+        {signer === 'krux' ? (
+          <>
+            <button className="btn primary" disabled={sending || (lookalike && !checked)} onClick={() => void toKrux()}>
+              {sending ? 'Getting it ready' : 'Sign on your Krux'}
+            </button>
+            <p className="note" style={{ textAlign: 'center' }}>
+              Nothing is signed on this iPhone. Your Krux shows you this payment and signs it.
+            </p>
+          </>
+        ) : (
+          <>
+            <button
+              className="btn primary"
+              disabled={sending || (needCode && !codeReady(code)) || (lookalike && !checked)}
+              onClick={async () => {
+                setSending(true);
+                setError(null);
+                try {
+                  const s = await app.signAndBroadcast(w, draft, label, replacing, needCode ? code : undefined);
+                  setSent(s.txid);
+                } catch (e) {
+                  setError(friendlyError(e));
+                  // A code is used up once accepted, so it never stays in the field for another try
+                  setCode('');
+                } finally {
+                  setSending(false);
+                }
+              }}
+            >
+              {sending ? 'Signing and sending' : 'Sign and send'}
+            </button>
+            <p className="note" style={{ textAlign: 'center' }}>
+              {needCode ? 'After the code, Face ID opens the seed for this one signature only.' : 'Face ID opens the seed for this one signature only.'}
+            </p>
+            {signer === 'both' && (
+              <button className="btn secondary" style={{ width: '100%' }} disabled={sending || (lookalike && !checked)} onClick={() => void toKrux()}>
+                Sign on your Krux instead
+              </button>
+            )}
+          </>
+        )}
       </main>
     </div>
+  );
+}
+
+/** The screen after a send: what left, the transaction ID, and an offer to save new addresses. */
+export function SentView({ total, txid, decision, unsaved, onDone }: { total: number; txid: string; decision: ReplayDecision; unsaved: { address: string; label: string }[]; onDone: () => void }) {
+  const app = useApp();
+  return (
+    <Screen title="Sent" back={false}>
+      <div className="big-amount" style={{ marginTop: 20 }}>
+        <Amount sats={total} unit={app.settings.unit} />
+      </div>
+      <p>Your node accepted the transaction and is relaying it.</p>
+      <ReplayStatus decision={decision} compact />
+      <div className="section-title">Transaction ID</div>
+      <div className="txid">{txid}</div>
+      {unsaved.map((p) => (
+        <SaveAddress key={p.address} address={p.address} label={p.label} />
+      ))}
+      <div style={{ height: 28 }} />
+      <button className="btn primary" onClick={onDone}>
+        Done
+      </button>
+    </Screen>
   );
 }
 

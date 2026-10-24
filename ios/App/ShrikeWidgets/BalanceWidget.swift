@@ -1,14 +1,14 @@
 import SwiftUI
 import WidgetKit
 
-/// One wallet's balance, in BTC or sats as set in the app, as of the last time Shrike checked it with the node.
+/// One wallet's balance, in BTC or sats as set in the app, as of the last time Crossbill checked it with the node.
 struct BalanceWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "ShrikeBalance", provider: ShrikeProvider()) { entry in
             BalanceWidgetView(entry: entry)
         }
         .configurationDisplayName("Balance")
-        .description("A wallet’s balance as of the last time Shrike checked your node. It changes when you open Shrike.")
+        .description("A wallet’s balance as of the last time Crossbill checked your node. It changes when you open Crossbill.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular])
     }
 }
@@ -31,7 +31,7 @@ struct BalanceWidgetView: View {
                     }
                 }
         }
-        .widgetURL(URL(string: "shrike://wallet"))
+        .widgetURL(URL(string: "crossbill://wallet"))
     }
 
     /// The band in the app's skin. It's dark in every skin, in light and dark alike.
@@ -53,10 +53,10 @@ struct BalanceWidgetView: View {
         } else {
             let hidden = s?.showBalance == false
             let (title, detail) = hidden
-                ? ("Balance hidden", "Shown again from Shrike’s Settings, Widgets.")
+                ? ("Balance hidden", "Shown again from Crossbill’s Settings, Widgets.")
                 : s == nil
-                    ? ("Balance", "Open Shrike to show your balance here.")
-                    : ("No balance yet", "Open Shrike and let it check your node.")
+                    ? ("Balance", "Open Crossbill to show your balance here.")
+                    : ("No balance yet", "Open Crossbill and let it check your node.")
             switch family {
             case .accessoryCircular:
                 ZStack {
@@ -74,7 +74,7 @@ struct BalanceWidgetView: View {
                 }
             default:
                 VStack(alignment: .leading, spacing: 0) {
-                    walletLine("Shrike", palette)
+                    walletLine("Crossbill", palette)
                     Message(title: title, detail: detail, palette: palette)
                 }
             }
@@ -126,7 +126,7 @@ struct BalanceWidgetView: View {
             HStack {
                 walletLine(b.wallet, palette)
                 Spacer(minLength: 8)
-                Text("Shrike").font(.system(size: 13, weight: .bold)).foregroundStyle(palette.dim)
+                Text("Crossbill").font(.system(size: 13, weight: .bold)).foregroundStyle(palette.dim)
             }
             Spacer(minLength: 6)
             HStack(alignment: .firstTextBaseline, spacing: 6) {

@@ -80,8 +80,8 @@ describe('time-based codes', () => {
   });
 
   it('builds the link authenticator apps read', () => {
-    const uri = otpauthUri('JBSWY3DPEHPK3PXP', 'iPhone wallet', 'Shrike');
-    expect(uri).toBe('otpauth://totp/Shrike:iPhone%20wallet?secret=JBSWY3DPEHPK3PXP&issuer=Shrike&algorithm=SHA1&digits=6&period=30');
+    const uri = otpauthUri('JBSWY3DPEHPK3PXP', 'iPhone wallet', 'Crossbill');
+    expect(uri).toBe('otpauth://totp/Crossbill:iPhone%20wallet?secret=JBSWY3DPEHPK3PXP&issuer=Crossbill&algorithm=SHA1&digits=6&period=30');
   });
 });
 

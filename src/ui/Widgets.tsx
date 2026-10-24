@@ -29,15 +29,15 @@ export function WidgetsScreen() {
     <Screen title="Widgets">
       <p style={{ marginTop: 0 }}>
         Two widgets, XBT price and Balance. On the Home Screen each comes as a small square or a wide rectangle, and on the Lock Screen as a round or a rectangular one. Tap one to
-        open Shrike on the Market or Wallet tab.
+        open Crossbill on the Market or Wallet tab.
       </p>
       <p className="note">
-        Widgets can’t run Tor, so they show what Shrike last got through it, with the time. They change when you open Shrike, and every few minutes while it stays open.
+        Widgets can’t run Tor, so they show what Crossbill last got through it, with the time. They change when you open Crossbill, and every few minutes while it stays open.
       </p>
 
       {w.status === 'no-app-group' && (
         <div className="banner error" role="alert">
-          This build of Shrike can’t hand anything to its widgets, because the App Group they share isn’t set up. Run <span className="mono">npm run ios:sync</span>, then build
+          This build of Crossbill can’t hand anything to its widgets, because the App Group they share isn’t set up. Run <span className="mono">npm run ios:sync</span>, then build
           again in Xcode. GETTING-STARTED.md has the steps under Widgets.
         </div>
       )}
@@ -83,7 +83,7 @@ export function WidgetsScreen() {
           <dt>On your screens</dt>
           <dd>
             {w.installed.length === 0
-              ? 'No Shrike widgets yet'
+              ? 'No Crossbill widgets yet'
               : w.installed.map((x, i) => (
                   <div key={i}>
                     {KIND_NAMES[x.kind] ?? x.kind}, {FAMILY_NAMES[x.family] ?? x.family}
@@ -117,7 +117,7 @@ export function WidgetsScreen() {
               checked={shown?.config.id === x.config.id}
               onSelect={() => void app.updateSettings({ widgetWallet: i === 0 ? null : x.config.id })}
               title={x.config.name}
-              detail={i === 0 ? 'The wallet Shrike opens to' : undefined}
+              detail={i === 0 ? 'The wallet Crossbill opens to' : undefined}
             />
           ))}
         </>
@@ -126,11 +126,11 @@ export function WidgetsScreen() {
       <div className="section-title">Adding one</div>
       <ol className="steps">
         <li>
-          <strong>Home Screen.</strong> Touch and hold an empty spot until the apps jiggle, tap Edit, then Add Widget. Search for Shrike, pick XBT price or Balance, swipe to
+          <strong>Home Screen.</strong> Touch and hold an empty spot until the apps jiggle, tap Edit, then Add Widget. Search for Crossbill, pick XBT price or Balance, swipe to
           the size you want, and tap Add Widget.
         </li>
         <li>
-          <strong>Lock Screen.</strong> Touch and hold the Lock Screen, tap Customize, then Lock Screen. Tap the row of widgets under the clock, and pick a Shrike widget.
+          <strong>Lock Screen.</strong> Touch and hold the Lock Screen, tap Customize, then Lock Screen. Tap the row of widgets under the clock, and pick a Crossbill widget.
         </li>
       </ol>
       {w.sentAt > 0 && <p className="note">Last handed to the widgets at {clock(w.sentAt)}.</p>}

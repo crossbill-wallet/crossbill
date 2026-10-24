@@ -8,14 +8,16 @@ import { isOptedIn } from '../core/replay';
 import { nodeAddressFields } from '../core/rpc';
 import { seedWordsFeedback, WORD_COUNTS } from '../core/seedwords';
 import { Choice, Field, ReplayStatus, Screen, ScreenshotWarning, SecondFactorField, Toggle, codeReady, useApp, useNav, useScreenshotAlert } from './kit';
+import { signerOf } from '../app/model';
+import { AddKrux } from './Krux';
 
 export function Welcome({ onStart, onRestore }: { onStart: () => void; onRestore: () => void }) {
   return (
     <div className="welcome">
       <img src="./bird.png" alt="" />
-      <h1>Shrike for iPhone</h1>
+      <h1>Crossbill</h1>
       <p>Your own Bitcoin Knots node, your own keys, and the BLAKE2b chain. Every send is checked for replay protection before you sign it.</p>
-      <p>You’ll need your node’s RPC onion address, user and password, and your wallet’s seed words.</p>
+      <p>You’ll need your node’s RPC onion address, user and password, and your wallet’s seed words or your Krux hardware wallet.</p>
       <div className="spacer" />
       <button className="btn primary" onClick={onStart}>
         Connect your node
@@ -170,15 +172,16 @@ export function NodeForm({ onSaved, back = true }: { onSaved: () => void; back?:
   );
 }
 
-type Step = 'choose' | 'words' | 'new' | 'verify' | 'pass' | 'type';
+type Step = 'choose' | 'words' | 'new' | 'verify' | 'pass' | 'type' | 'krux';
 
-export function AddWallet({ back = true, onDone, seedFrom }: { back?: boolean; onDone?: () => void; seedFrom?: string }) {
+export function AddWallet({ back = true, onDone, seedFrom, start }: { back?: boolean; onDone?: () => void; seedFrom?: string; start?: 'krux' | 'words' }) {
   const app = useApp();
   const nav = useNav();
   // Opening another wallet's seed words with a passphrase. The words come from the Keychain, behind Face ID
   const source = seedFrom ? app.walletById(seedFrom) : undefined;
-  const [step, setStep] = useState<Step>(source ? 'pass' : 'choose');
-  const [mode, setMode] = useState<'restore' | 'create'>('restore');
+  const [step, setStep] = useState<Step>(source ? 'pass' : (start ?? 'choose'));
+  const [mode, setMode] = useState<'restore' | 'create' | 'krux'>(start === 'krux' ? 'krux' : 'restore');
+  const [seedBack, setSeedBack] = useState<string | null>(null);
   const [count, setCount] = useState<number>(24);
   const [words, setWords] = useState('');
   const [settled, setSettled] = useState(false);
@@ -197,7 +200,8 @@ export function AddWallet({ back = true, onDone, seedFrom }: { back?: boolean; o
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const [restored, setRestored] = useState<string | null>(null);
-  const waiting = app.waitingWallets();
+  const waiting = app.waitingWallets().filter((b) => signerOf(b.config) !== 'krux');
+  const kruxWaiting = app.waitingWallets().filter((b) => signerOf(b.config) === 'krux');
   const shot = useScreenshotAlert(step === 'words' || step === 'new' || step === 'verify');
 
   // The last word counts as finished after a pause, so a pasted seed is judged without needing a trailing space
@@ -244,6 +248,19 @@ export function AddWallet({ back = true, onDone, seedFrom }: { back?: boolean; o
     }
   };
 
+  if (seedBack) {
+    return (
+      <Screen title="Seed words added" back={false}>
+        <div className="banner on-banner">{seedBack}’s seed words are on this iPhone again. Each send can now be signed here or on your Krux.</div>
+        <button className="btn primary" onClick={done}>
+          Done
+        </button>
+      </Screen>
+    );
+  }
+
+  if (step === 'krux') return <AddKrux onBack={() => (start === 'krux' && back ? nav.pop() : setStep('choose'))} onDone={done} />;
+
   if (step === 'choose') {
     return (
       <Screen title="Add a wallet" back={back}>
@@ -252,8 +269,19 @@ export function AddWallet({ back = true, onDone, seedFrom }: { back?: boolean; o
             From your backup, waiting for seed words: {waiting.map((b) => b.config.name).join(', ')}. Choose Use my seed words and enter them; each comes back with its labels.
           </div>
         )}
+        {kruxWaiting.length > 0 && (
+          <div className="banner on-banner">
+            From your backup, signed on a Krux: {kruxWaiting.map((b) => b.config.name).join(', ')}. Choose Use my Krux and scan its key; each comes back with its labels.
+          </div>
+        )}
         <Choice checked={mode === 'restore'} onSelect={() => setMode('restore')} title="Use my seed words" detail="The wallet you already have in Shrike on your computer, or any BIP39 seed." />
         <Choice checked={mode === 'create'} onSelect={() => setMode('create')} title="Create a new wallet" detail="New 24 seed words, made on this phone." />
+        <Choice
+          checked={mode === 'krux'}
+          onSelect={() => setMode('krux')}
+          title="Use my Krux"
+          detail="Paperclip’s K210 Krux hardware wallet. The seed words stay on the Krux; this iPhone keeps only its public key."
+        />
         <div style={{ height: 12 }} />
         <button
           className="btn primary"
@@ -261,7 +289,7 @@ export function AddWallet({ back = true, onDone, seedFrom }: { back?: boolean; o
             if (mode === 'create') {
               setGenerated(newMnemonic(24));
               setStep('new');
-            } else setStep('words');
+            } else setStep(mode === 'krux' ? 'krux' : 'words');
           }}
         >
           Continue
@@ -434,7 +462,7 @@ export function AddWallet({ back = true, onDone, seedFrom }: { back?: boolean; o
       </Field>
       <div className="section-title">Address type</div>
       {types.map((t) => (
-        <Choice key={t} checked={scriptType === t} onSelect={() => setScriptType(t)} title={SCRIPT_TYPE_INFO[t].label} detail={found?.includes(t) ? 'Found on your node' : t === 'P2WPKH' ? 'Shrike’s default' : undefined} />
+        <Choice key={t} checked={scriptType === t} onSelect={() => setScriptType(t)} title={SCRIPT_TYPE_INFO[t].label} detail={found?.includes(t) ? 'Found on your node' : t === 'P2WPKH' ? 'Crossbill’s default' : undefined} />
       ))}
       {!(found && found.includes(scriptType)) && (
         <>
@@ -470,8 +498,9 @@ export function AddWallet({ back = true, onDone, seedFrom }: { back?: boolean; o
           setError(null);
           try {
             const choice: RescanChoice = found?.includes(scriptType) ? { kind: 'existing' } : mode === 'create' ? { kind: 'new' } : rescan.kind === 'date' ? { kind: 'date', since: sinceUnix } : rescan;
-            await app.addWallet({ name, mnemonic, passphrase: effectivePassphrase, scriptType, rescan: choice });
-            done();
+            const r = await app.addWallet({ name, mnemonic, passphrase: effectivePassphrase, scriptType, rescan: choice });
+            if (r === 'seed-back') setSeedBack(app.active?.config.name ?? name);
+            else done();
           } catch (e) {
             setError(friendlyError(e));
           } finally {

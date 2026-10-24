@@ -1,5 +1,39 @@
 # Changes
 
+## 0.4.0
+
+**Shrike for iPhone is now Crossbill.** The community encouraged a name of its own, so the app isn't mistaken for part of the Shrike project, which it isn't. The new name comes with a new logo, a red low-poly crossbill in front of a shield, on the app icon, the launch screen, the lock and welcome screens and the price widget.
+
+- On your iPhone it updates in place: same wallets, settings, PIN and seed words. Your 0.3.0 backup files still restore.
+- The app shows Crossbill everywhere, including Face ID prompts, the widget gallery and backup file names (`crossbill-backup-<date>.json`). The skins are named for crossbills: Crossbill, Red, White-winged and Gilded. The one you chose stays chosen.
+- An authenticator entry added for two-factor before 0.4.0 is still called Shrike in your authenticator app. The codes don't change; rename it there if you like.
+- Widget taps use the `crossbill://` link scheme.
+- The code moved to [github.com/crossbill-wallet/crossbill](https://github.com/crossbill-wallet/crossbill). Old links to the previous address forward there.
+- Builders: the generic bundle ID in the repository is now `io.github.crossbill-wallet.app`. Your own bundle ID is unchanged.
+- Code that only the app sees keeps some old names, such as `ShrikeNative` and the `ShrikeWidgets` target, so nothing on your phone has to move. [NOTICE](NOTICE) lists them.
+
+New:
+
+- **Paperclip's Krux hardware wallet.** Crossbill now works with the K210 Krux Hardware Wallet, Paperclip's air-gapped signer for Bitcoin (XBT). The seed words stay on the Krux. Crossbill builds each send, the Krux shows where it goes and signs it, and Crossbill sends it through your node. Only Paperclip's firmware works: standard Krux refuses unified signatures.
+- **Three ways to set it up.**
+  - **On first launch:** after connecting your node, choose **Use my Krux** and scan the key the Krux shows (Extended Public Key, ZPUB or XPUB QR code), or open the .pub file it saves to microSD.
+  - **For a wallet already on the phone:** Settings, Wallets, the wallet, **Sign with a Krux**. You type its seed words on the Krux; Crossbill checks the Krux's key is the wallet's, then asks whether to take the seed words off this iPhone (suggested) or keep them so either can sign.
+  - **As a new wallet beside your others:** Add a wallet, **Use my Krux**. The phone keeps the public key only.
+- **Signing on the Krux.** Review has **Sign on your Krux**. Crossbill shows the transaction as BBQr codes for the Krux's camera, or saves it for a microSD card. Once the Krux signs, scan its codes or open its signed file. Crossbill checks each signature against the wallet's own keys, and that each is a unified (replay-protected) signature, before offering **Send**. No Face ID or two-factor code is asked: approving on the Krux is the check. Fee raises and cancels work the same way.
+- **The screen stays awake** while the Krux reads codes off it. If the app locks partway through, it opens back on the waiting send.
+- **Settings, Hardware wallet**: setting up, sending, checking a receive address on the Krux, what its warnings mean, and links to the Paperclip store, the product page, the firmware and its update guide, Krux, and Connor's Lab, who makes Paperclip's firmware.
+- **Receive** says how to check an address on the Krux (Address, Scan Address) for wallets it signs.
+- **Backups** keep how each wallet is signed. A wallet that signs only on the Krux comes back by scanning its key, with no seed words.
+
+Changed:
+
+- A wallet that signs only on the Krux has no seed words to show or open with a passphrase. Typing its seed words in Add a wallet puts them back on this iPhone.
+- Adds `pako` for BBQr's compression. After updating, run `npm install` before `npm run ios:sync`.
+- The QR scanner can stay open for the Krux's animated codes, showing how many it has read.
+- **GitHub Actions.** Every push runs the type check and tests, the tests against Paperclip's Krux signing code, and an unsigned build of the whole iOS app, so Swift that doesn't compile is caught on GitHub. The regtest suites run weekly against Bitcoin Knots built from source.
+- **Test builds.** Publishing a release builds an unsigned `.ipa` from its tag on GitHub and attaches it with its SHA-256 and a build provenance attestation. Testers sign it with their own Apple Account; see [TESTERS.md](TESTERS.md). It holds no certificate, team or name.
+- The Xcode project now shares its **App** scheme, which builds on GitHub need.
+
 ## 0.3.0
 
 New:

@@ -4,7 +4,8 @@ import { Share } from '@capacitor/share';
 import { SCRIPT_TYPE_INFO } from '../core/script';
 import { DEFAULT_EXPLORER, normalizeExplorer } from '../core/explorer';
 import { DECISION_TEXT, decisionSummary } from '../core/replay';
-import { friendlyError } from '../app/model';
+import { friendlyError, signerOf } from '../app/model';
+import { KruxWalletSection } from './Krux';
 import { isNative } from '../app/native';
 import { FONTS, SKINS } from '../app/look';
 import { APP_REPO, DONATION_ADDRESS } from '../app/links';
@@ -46,7 +47,10 @@ export function Settings() {
         <button key={w.config.id} className="row setting" onClick={() => nav.push({ name: 'wallet-info', id: w.config.id })}>
           <div className="main">
             <div className="title">{w.config.name}</div>
-            <div className="meta">{SCRIPT_TYPE_INFO[w.config.scriptType].label}</div>
+            <div className="meta">
+              {SCRIPT_TYPE_INFO[w.config.scriptType].label}
+              {signerOf(w.config) === 'krux' ? ', signs on your Krux' : signerOf(w.config) === 'both' ? ', also on your Krux' : ''}
+            </div>
           </div>
           <div className="amt">
             <Amount sats={(w.snapshot?.balance.confirmed ?? 0) + (w.snapshot?.balance.unconfirmed ?? 0)} unit={app.settings.unit} />
@@ -64,12 +68,13 @@ export function Settings() {
       <button className="btn quiet" onClick={() => nav.push({ name: 'add-wallet' })}>
         Add a wallet
       </button>
+      <Row title="Hardware wallet" meta="Paperclip’s K210 Krux: set up, signing, help and links" onClick={() => nav.push({ name: 'hardware' })} />
 
       <div className="section-title">Security</div>
       <Row title="Two-factor" meta={app.settings.twoFactor ? 'A code is needed to send and to show seed words' : 'Off. Sends need Face ID only'} end={app.settings.twoFactor ? 'On' : 'Off'} onClick={() => nav.push({ name: 'two-factor' })} />
       <Row
         title="App PIN"
-        meta={app.pinOn ? 'Asked for when Face ID doesn’t work, instead of the iPhone passcode' : 'Off. When Face ID doesn’t work, the iPhone passcode opens Shrike'}
+        meta={app.pinOn ? 'Asked for when Face ID doesn’t work, instead of the iPhone passcode' : 'Off. When Face ID doesn’t work, the iPhone passcode opens Crossbill'}
         end={app.pinOn ? 'On' : 'Off'}
         onClick={() => nav.push({ name: 'pin' })}
       />
@@ -151,12 +156,12 @@ export function Settings() {
       {DONATION_ADDRESS && (
         <>
           <div className="section-title">Support this app</div>
-          <Row title="Donate XBT" meta="Help keep Shrike for iPhone going" onClick={() => nav.push({ name: 'donate' })} />
+          <Row title="Donate XBT" meta="Help keep Crossbill going" onClick={() => nav.push({ name: 'donate' })} />
         </>
       )}
 
       <p className="note" style={{ marginTop: 28 }}>
-        Shrike for iPhone {__APP_VERSION__}. A personal build of the Shrike wallet, an unofficial fork of Sparrow. Not audited. Apache 2.0.
+        Crossbill {__APP_VERSION__}. An independent wallet for Bitcoin (XBT) on the BLAKE2b chain, with parts ported from Shrike and Sparrow. Not affiliated with either, or with Bitcoin Knots, Paperclip or Connor’s Lab. Not audited. Apache 2.0.
       </p>
       <button className="btn quiet" onClick={() => void openLink(APP_REPO)}>
         Code and releases on GitHub
@@ -289,13 +294,13 @@ export function Donate() {
   const mainnet = app.settings.network === 'mainnet';
   return (
     <Screen title="Donate">
-      <p style={{ marginTop: 0 }}>Shrike for iPhone is free and built in spare time. If it’s useful to you, a donation in XBT helps keep it going. Thank you.</p>
+      <p style={{ marginTop: 0 }}>Crossbill is free and built in spare time. If it’s useful to you, a donation in XBT helps keep it going. Thank you.</p>
       <Qr text={`bitcoin:${DONATION_ADDRESS}`} />
       <div style={{ textAlign: 'center', marginBottom: 16 }}>
         <Address value={DONATION_ADDRESS} />
       </div>
       <div style={{ display: 'grid', gap: 10 }}>
-        <button className="btn primary" disabled={!mainnet} onClick={() => nav.push({ name: 'send', address: DONATION_ADDRESS, label: 'Donation to Shrike for iPhone' })}>
+        <button className="btn primary" disabled={!mainnet} onClick={() => nav.push({ name: 'send', address: DONATION_ADDRESS, label: 'Donation to Crossbill' })}>
           Send from {app.active?.config.name ?? 'this wallet'}
         </button>
         <button
@@ -397,6 +402,8 @@ export function WalletInfo({ id }: { id: string }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const shot = useScreenshotAlert(seed != null);
   if (!w) return <Screen title="Wallet">{null}</Screen>;
+  // Signed only on the Krux: no seed words on this iPhone to show or open with a passphrase
+  const krux = signerOf(w.config) === 'krux';
 
   const exportLabels = async () => {
     const text = app.exportLabels(w);
@@ -440,6 +447,8 @@ export function WalletInfo({ id }: { id: string }) {
         </div>
       </dl>
 
+      <KruxWalletSection w={w} />
+
       <div className="section-title">Output descriptor</div>
       <div className="txid" style={{ marginBottom: 8 }}>
         {app.outputDescriptor(w, 0)}
@@ -478,8 +487,8 @@ export function WalletInfo({ id }: { id: string }) {
         }}
       />
 
-      <div className="section-title">Seed words</div>
-      {seed ? (
+      {!krux && <div className="section-title">Seed words</div>}
+      {krux ? null : seed ? (
         <>
           {shot && <ScreenshotWarning />}
           <ol className="words">
@@ -543,14 +552,18 @@ export function WalletInfo({ id }: { id: string }) {
         </Sheet>
       )}
 
-      <div className="section-title">Passphrase</div>
-      <p className="note" style={{ marginTop: 0 }}>
-        A passphrase can’t be added to this wallet or changed on it. It’s mixed into the keys, so a different passphrase is a different wallet with different addresses, and the coins would stay
-        here. Instead, open these seed words with a passphrase as a second wallet, then send the coins across with <strong>My wallets</strong> on the Send screen.
-      </p>
-      <button className="btn secondary" style={{ width: '100%' }} onClick={() => nav.push({ name: 'add-wallet', seedFrom: id })}>
-        {w.config.hasPassphrase ? 'Open with a different passphrase' : 'Open with a passphrase'}
-      </button>
+      {!krux && (
+        <>
+          <div className="section-title">Passphrase</div>
+          <p className="note" style={{ marginTop: 0 }}>
+            A passphrase can’t be added to this wallet or changed on it. It’s mixed into the keys, so a different passphrase is a different wallet with different addresses, and the coins would
+            stay here. Instead, open these seed words with a passphrase as a second wallet, then send the coins across with <strong>My wallets</strong> on the Send screen.
+          </p>
+          <button className="btn secondary" style={{ width: '100%' }} onClick={() => nav.push({ name: 'add-wallet', seedFrom: id })}>
+            {w.config.hasPassphrase ? 'Open with a different passphrase' : 'Open with a passphrase'}
+          </button>
+        </>
+      )}
 
       {msg && <p className="note">{msg}</p>}
       {error && <div className="banner error" style={{ marginTop: 14 }}>{error}</div>}
@@ -558,7 +571,11 @@ export function WalletInfo({ id }: { id: string }) {
       <div className="section-title">Remove</div>
       {confirmRemove ? (
         <>
-          <p>This deletes the seed words and history from this phone. Your node and Shrike on your computer keep everything. You’ll need the seed words to add it again.</p>
+          <p>
+            {krux
+              ? 'This deletes the wallet’s history from this phone. Your node and Shrike on your computer keep its history, and your paper copy its seed words. To add it again, scan the Krux’s key.'
+              : 'This deletes the seed words and history from this phone. Your node and Shrike on your computer keep everything. You’ll need the seed words to add it again.'}
+          </p>
           <div style={{ display: 'grid', gap: 10 }}>
             <button
               className="btn danger"

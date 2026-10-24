@@ -4,7 +4,7 @@
 <dict>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.shrikewallet.mobile.personal</string>
+		<string>group.io.github.crossbill-wallet.app</string>
 	</array>
 </dict>
 </plist>

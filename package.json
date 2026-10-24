@@ -1,8 +1,8 @@
 {
-  "name": "shrike-mobile",
+  "name": "crossbill",
   "private": true,
-  "version": "0.3.0",
-  "description": "Personal iPhone build of the Shrike Bitcoin wallet (BLAKE2b fork, unified sighash), talking to your own Knots node over Tor.",
+  "version": "0.4.0",
+  "description": "Crossbill: an independent iPhone wallet for Bitcoin (XBT) on the BLAKE2b chain, talking to your own Knots node over Tor.",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -30,6 +30,7 @@
     "@scure/base": "2.4.0",
     "@scure/bip32": "2.4.0",
     "@scure/bip39": "2.4.0",
+    "pako": "2.1.0",
     "qrcode": "1.5.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -38,6 +39,7 @@
   "devDependencies": {
     "@capacitor/cli": "8.5.2",
     "@types/node": "22.19.0",
+    "@types/pako": "2.0.3",
     "@types/qrcode": "1.5.6",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",

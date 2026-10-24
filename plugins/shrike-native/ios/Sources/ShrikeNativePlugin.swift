@@ -27,6 +27,9 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "authenticate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "biometryType", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "scanQr", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "scanQrProgress", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "scanQrFinish", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "keepAwake", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openUrl", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "copyPrivately", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "biometryTrust", returnType: CAPPluginReturnPromise),
@@ -37,7 +40,7 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
     private static let vaultService = "shrike.mobile.vault"
     private let plainSession = URLSession(configuration: .ephemeral)
     private var cover: UIView?
-    private var scanner: AnyObject?
+    private var scanner: QrScanner?
 
     public override func load() {
         NotificationCenter.default.addObserver(self, selector: #selector(appWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
@@ -267,7 +270,7 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
     // MARK: Face ID
 
     @objc func authenticate(_ call: CAPPluginCall) {
-        let reason = call.getString("reason") ?? "Open Shrike"
+        let reason = call.getString("reason") ?? "Open Crossbill"
         let context = LAContext()
         var error: NSError?
         if call.getBool("biometricsOnly") ?? false {
@@ -367,7 +370,18 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
                     call.reject("Nothing to present the scanner from")
                     return
                 }
-                let s = QrScanner(call: call) { [weak self] in self?.scanner = nil }
+                if self.scanner != nil {
+                    call.reject("The scanner is already open")
+                    return
+                }
+                let parts = call.getBool("parts") ?? false
+                let s = QrScanner(
+                    call: call,
+                    parts: parts,
+                    title: call.getString("title"),
+                    onPart: { [weak self] text in self?.notifyListeners("qrPart", data: ["value": text]) },
+                    onFinish: { [weak self] in self?.scanner = nil }
+                )
                 self.scanner = s
                 s.present(from: host)
             }
@@ -377,10 +391,40 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
             present()
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { granted in
-                if granted { present() } else { call.reject("Camera access is off. Turn it on for Shrike in Settings to scan QR codes.") }
+                if granted { present() } else { call.reject("Camera access is off. Turn it on for Crossbill in Settings to scan QR codes.") }
             }
         default:
-            call.reject("Camera access is off. Turn it on for Shrike in Settings to scan QR codes.")
+            call.reject("Camera access is off. Turn it on for Crossbill in Settings to scan QR codes.")
+        }
+    }
+
+    /// For a scanner opened with parts: true. Shows the app's progress text under the title; reset makes the
+    /// scanner pass on codes it has already passed on, for when the app starts a series over.
+    @objc func scanQrProgress(_ call: CAPPluginCall) {
+        let text = call.getString("text") ?? ""
+        let reset = call.getBool("reset") ?? false
+        DispatchQueue.main.async {
+            self.scanner?.progress(text, reset: reset)
+            call.resolve()
+        }
+    }
+
+    /// Closes a scanner opened with parts: true once the app has every code it needs.
+    @objc func scanQrFinish(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            self.scanner?.finishParts()
+            call.resolve()
+        }
+    }
+
+    // MARK: Screen
+
+    /// Keeps the screen from dimming and locking while on, as while a hardware wallet reads codes off it.
+    @objc func keepAwake(_ call: CAPPluginCall) {
+        let on = call.getBool("on") ?? false
+        DispatchQueue.main.async {
+            UIApplication.shared.isIdleTimerDisabled = on
+            call.resolve()
         }
     }
 
@@ -456,7 +500,7 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve(["ok": true])
     }
 
-    /// The Shrike widgets on the Home Screen and Lock Screen, by kind and size.
+    /// The Crossbill widgets on the Home Screen and Lock Screen, by kind and size.
     @objc func widgetsInstalled(_ call: CAPPluginCall) {
         let shared = Self.widgetFile() != nil
         WidgetCenter.shared.getCurrentConfigurations { found in

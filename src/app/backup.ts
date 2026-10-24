@@ -131,7 +131,7 @@ function contactOk(c: unknown): c is Contact {
 export function checkBackupContents(o: unknown): BackupContents {
   const b = o as Partial<BackupContents> | null;
   if (!b || b.kind !== 'shrike-backup' || b.v !== 1 || !Array.isArray(b.wallets) || !Array.isArray(b.contacts) || !b.settings || typeof b.settings !== 'object') {
-    throw new Error('This backup opened, but what’s inside isn’t in a form this version of Shrike reads');
+    throw new Error('This backup opened, but what’s inside isn’t in a form this version of Crossbill reads');
   }
   const settings: Partial<Settings> = {};
   for (const k of BACKUP_SETTINGS) {
@@ -145,7 +145,13 @@ export function checkBackupContents(o: unknown): BackupContents {
     createdAt: isNum(b.createdAt) ? b.createdAt : 0,
     settings,
     wallets: b.wallets.filter(walletOk).map((w) => ({
-      config: { ...w.config, id: isId(w.config.id) ? w.config.id : newId(), gapLimit: Math.min(MAX_GAP, Math.max(1, Math.floor(w.config.gapLimit))) },
+      config: {
+        ...w.config,
+        id: isId(w.config.id) ? w.config.id : newId(),
+        gapLimit: Math.min(MAX_GAP, Math.max(1, Math.floor(w.config.gapLimit))),
+        // Where it was signed: on this iPhone, a Krux, or either. Anything else reads as this iPhone
+        signer: w.config.signer === 'krux' || w.config.signer === 'both' ? w.config.signer : 'phone',
+      },
       labels: w.labels.filter(labelOk),
       importedRange: w.importedRange,
     })),

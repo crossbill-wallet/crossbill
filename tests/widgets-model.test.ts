@@ -188,16 +188,16 @@ describe('the price for a price widget', () => {
 describe('a tapped widget', () => {
   it('asks for its tab once', async () => {
     const m = await model();
-    m.openLink('shrike://market');
+    m.openLink('crossbill://market');
     expect(m.takePendingTab()).toBe('market');
     expect(m.takePendingTab()).toBeNull();
-    m.openLink('shrike://wallet');
+    m.openLink('crossbill://wallet');
     expect(m.takePendingTab()).toBe('home');
   });
 
   it('ignores any other link', async () => {
     const m = await model();
-    for (const url of ['shrike://send?to=bc1q', 'https://example.com', 'shrike://market/../send', 'bitcoin:bc1q']) m.openLink(url);
+    for (const url of ['crossbill://send?to=bc1q', 'https://example.com', 'crossbill://market/../send', 'shrike://market', 'bitcoin:bc1q']) m.openLink(url);
     expect(m.pendingTab).toBeNull();
   });
 });

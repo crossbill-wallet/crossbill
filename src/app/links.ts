@@ -9,7 +9,7 @@ import { PRICE_PAGE } from '../core/price';
  */
 export const DONATION_ADDRESS = 'bc1q3zvy2gwhyt6g2hyrlqle2e7qjt5fcsys2tnraz';
 
-export const APP_REPO = 'https://github.com/finchly6819/shrike-mobile-wallet';
+export const APP_REPO = 'https://github.com/crossbill-wallet/crossbill';
 
 export interface LinkGroup {
   title: string;
@@ -28,8 +28,8 @@ export const LINK_GROUPS: LinkGroup[] = [
   {
     title: 'Software',
     links: [
-      { name: 'Shrike for iPhone on GitHub', url: APP_REPO, detail: 'This app’s code, issues and releases.' },
-      { name: 'Shrike', url: 'https://github.com/privkeyio/shrike', detail: 'The desktop wallet this app is built from.' },
+      { name: 'Crossbill on GitHub', url: APP_REPO, detail: 'This app’s code, issues and releases.' },
+      { name: 'Shrike', url: 'https://github.com/privkeyio/shrike', detail: 'The desktop wallet that parts of this app are ported from. Crossbill isn’t part of that project.' },
       { name: 'Bitcoin Knots', url: 'https://bitcoinknots.org/', detail: 'The node software that follows the BLAKE2b chain.' },
       { name: 'Awesome Bitcoin BLAKE', url: 'https://github.com/bitcoin-blake/awesome-bitcoin-blake', detail: 'A list of wallets, explorers, pools and guides for the chain.' },
     ],
@@ -48,5 +48,36 @@ export const LINK_GROUPS: LinkGroup[] = [
       { name: 'mempool.guide', url: 'https://mempool.guide/', detail: 'Block explorer for the BLAKE2b chain.' },
       { name: 'Neoxa Exchange, XBT/USDC', url: PRICE_PAGE, detail: 'Where this app’s price comes from.' },
     ],
+  },
+];
+
+/** Paperclip's Krux hardware wallet: where to buy it, its firmware, and who makes it. Shown in Settings, Hardware wallet. */
+export const KRUX_LINKS: LinkGroup[] = [
+  {
+    title: 'Paperclip',
+    links: [
+      { name: 'Paperclip store', url: 'https://shop.paperclip-xbt.xyz/', detail: 'Where the K210 Krux Hardware Wallet is sold.' },
+      {
+        name: 'K210 Krux Hardware Wallet',
+        url: 'https://shop.paperclip-xbt.xyz/product/k210-krux-hardware-wallet/',
+        detail: 'The product page: what’s in the box, the hardware, and how signing works.',
+      },
+    ],
+  },
+  {
+    title: 'Firmware',
+    links: [
+      { name: 'Paperclip’s Krux firmware', url: 'https://github.com/connorslab/krux-blake2b', detail: 'Source code, releases and compatibility notes for Bitcoin (XBT).' },
+      {
+        name: 'Installing and updating firmware',
+        url: 'https://github.com/connorslab/krux-blake2b/blob/main/docs/FIRMWARE-UPDATES.md',
+        detail: 'The first USB install, and signed updates from a microSD card after that.',
+      },
+      { name: 'Krux', url: 'https://github.com/selfcustody/krux', detail: 'The open-source signer it’s built on. Paperclip’s version isn’t an official Krux product.' },
+    ],
+  },
+  {
+    title: 'The maker',
+    links: [{ name: 'Connor’s Lab', url: 'https://discord.com/users/538209415468417034', detail: 'The developer behind Paperclip’s Krux release, on Discord.' }],
   },
 ];

@@ -1,7 +1,7 @@
 import SwiftUI
 import WidgetKit
 
-/// Shrike's widgets for the Home Screen and the Lock Screen. They show only what the app hands them (see
+/// Crossbill's widgets for the Home Screen and the Lock Screen. They show only what the app hands them (see
 /// Snapshot.swift); the app asks iOS to redraw them whenever it has something new.
 @main
 struct ShrikeWidgets: WidgetBundle {

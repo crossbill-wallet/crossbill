@@ -1,0 +1,137 @@
+# Checks every push and pull request: the type check and tests, Crossbill's PSBTs against Paperclip's own Krux
+# signing code, and an unsigned build of the whole iOS app (app, native plugin and widgets), so Swift that doesn't
+# compile shows up here rather than in Xcode. Once a week, and on request, it also runs the regtest suites against
+# Bitcoin Knots built from source.
+#
+# Actions are pinned to full commits, with the release they are in a comment.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 7 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  test:
+    name: Type check and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  krux:
+    name: Paperclip's Krux signing code
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - name: Fetch the firmware's signing code
+        run: bash scripts/ci/krux-setup.sh "$RUNNER_TEMP/krux-check" >> "$GITHUB_ENV"
+        env:
+          KRUX_PYTHON: python
+      - name: Hand Crossbill's PSBTs to it
+        run: npx vitest run tests/krux.test.ts
+        env:
+          KRUX_PYTHON: python
+          KRUX_REQUIRED: '1'
+
+  ios:
+    name: iOS app, unsigned
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      # Xcode 26.6 on the macOS 26 runner. Switch to the xcode-27 runner once it leaves preview.
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Build an unsigned .ipa
+        run: bash scripts/build-ios-unsigned.sh build/ios
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: crossbill-unsigned-${{ github.sha }}
+          path: |
+            build/ios/*.ipa
+            build/ios/*.ipa.sha256
+          retention-days: 14
+          if-no-files-found: error
+
+  regtest:
+    name: Regtest node, weekly
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Libraries Knots needs
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends build-essential cmake pkgconf libevent-dev libboost-dev libsqlite3-dev
+      - name: Restore Bitcoin Knots
+        id: knots
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/knots-bin
+          key: knots-v29.4.1.knots20260508-${{ runner.os }}-${{ hashFiles('scripts/ci/knots-build.sh') }}
+      - name: Build Bitcoin Knots
+        if: steps.knots.outputs.cache-hit != 'true'
+        run: bash scripts/ci/knots-build.sh ~/knots-bin
+      - run: npm ci
+      - name: Fetch the firmware's signing code
+        run: bash scripts/ci/krux-setup.sh "$RUNNER_TEMP/krux-check" >> "$GITHUB_ENV"
+        env:
+          KRUX_PYTHON: python
+      - name: Regtest suites
+        run: KNOTS_BIN="$HOME/knots-bin" npx vitest run tests/regtest.e2e.test.ts tests/krux.e2e.test.ts
+        env:
+          KRUX_PYTHON: python
+          KRUX_REQUIRED: '1'
+          KNOTS_REQUIRED: '1'

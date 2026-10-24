@@ -1,6 +1,6 @@
-# Getting started with Shrike for iPhone
+# Getting started with Crossbill
 
-This folder holds everything needed to put Shrike for iPhone on your own iPhone: a Bitcoin wallet for the BLAKE2b chain that talks only to your own Bitcoin Knots node, over Tor, and keeps seed words in the iPhone Keychain behind Face ID. It works alongside [Shrike](https://shrikewallet.com/) on a computer and finds wallets you already use there.
+This folder holds everything needed to put Crossbill on your own iPhone: a Bitcoin wallet for the BLAKE2b chain that talks only to your own Bitcoin Knots node, over Tor, and keeps seed words in the iPhone Keychain behind Face ID. It works alongside [Shrike](https://shrikewallet.com/) on a computer and finds wallets you already use there.
 
 **It hasn't been audited.** Use small amounts until you trust it, and keep your seed words on paper.
 
@@ -30,7 +30,7 @@ If you're reading this on GitHub, get the folder first: click the green **Code**
 
 The script checks Xcode, installs Node.js and CocoaPods if they're missing (through Homebrew, which asks for your Mac password once), builds the app, downloads the Tor library and opens the project in Xcode.
 
-Partway through it asks for a **bundle ID**: the name Apple knows the app by. Type something that's yours, such as `com.yourname.shrike`, using only letters, numbers, dots and dashes.
+Partway through it asks for a **bundle ID**: the name Apple knows the app by. Type something that's yours, such as `com.yourname.crossbill`, using only letters, numbers, dots and dashes.
 
 If the script stops with a message, it says what to do. Follow it and run `./setup.sh` again.
 
@@ -78,6 +78,7 @@ The node must be Bitcoin Knots following the BLAKE2b fork, with its wallet featu
 
 - **A wallet you already use in Shrike:** choose **Use my seed words**, pick the number of words, and type them in order. Add the passphrase if it has one. If desktop Shrike already uses this node, the app finds the wallet there and needs no scan. Otherwise pick the address type and a date before the wallet's first payment, and your node scans from there.
 - **A new wallet:** choose **Create a new wallet**, write the 24 words on paper, and type back the three the app asks for.
+- **A Krux hardware wallet:** choose **Use my Krux**. See [Hardware wallet](#hardware-wallet-optional) below.
 
 Never take a screenshot of seed words. Screenshots go to Photos, and often to iCloud. If you do take one, the app reminds you to delete it.
 
@@ -92,24 +93,36 @@ Right after the first wallet, the app offers two-factor: a 6-digit code from an 
 
 ### App PIN and duress PIN (optional)
 
-In Settings, App PIN, choose six digits that aren't your iPhone passcode. From then on, when Face ID doesn't work, Shrike asks for this PIN instead of the passcode, to open the app and before signing. If a face is ever added to Face ID, Shrike asks for the PIN until you confirm the change was yours in Settings, App PIN.
+In Settings, App PIN, choose six digits that aren't your iPhone passcode. From then on, when Face ID doesn't work, Crossbill asks for this PIN instead of the passcode, to open the app and before signing. If a face is ever added to Face ID, Crossbill asks for the PIN until you confirm the change was yours in Settings, App PIN.
 
-A duress PIN is a second PIN for when someone forces you to open Shrike: cancel Face ID and type it, and Shrike opens showing only one wallet you choose. Use a wallet with a small amount in it, and keep the Shrike skin, since skins hint at what you hold.
+A duress PIN is a second PIN for when someone forces you to open Crossbill: cancel Face ID and type it, and Crossbill opens showing only one wallet you choose. Use a wallet with a small amount in it, and keep the Crossbill skin, since skins hint at what you hold.
 
-If you forget the app PIN, remove Shrike from the iPhone and add your wallets again with your seed words.
+If you forget the app PIN, remove Crossbill from the iPhone and add your wallets again with your seed words.
 
 ### Backup (recommended)
 
-In Settings, Backup, choose a password and save the file somewhere other than this iPhone, such as iCloud Drive or a computer. Write the password with your seed words: it can't be reset. On a new iPhone, tap **Restore from a backup** on the welcome screen, then enter your node's password and each wallet's seed words. The file never holds seed words or passwords.
+In Settings, Backup, choose a password and save the file somewhere other than this iPhone, such as iCloud Drive or a computer. Write the password with your seed words: it can't be reset. On a new iPhone, tap **Restore from a backup** on the welcome screen, then enter your node's password and each wallet's seed words, or scan its Krux. The file never holds seed words or passwords.
+
+### Hardware wallet (optional)
+
+Crossbill works with Paperclip's [K210 Krux Hardware Wallet](https://shop.paperclip-xbt.xyz/product/k210-krux-hardware-wallet/), running Paperclip's Krux firmware (standard Krux won't sign these transactions). The seed words stay on the Krux, and every send is signed there. Settings, Hardware wallet in the app has the same steps, what the Krux's warnings mean, and links.
+
+1. **On the Krux,** choose **Load Mnemonic**, **Words** and type your seed words, or **New Mnemonic** to make new ones (write them on the backup card). On the screen that follows, use **Passphrase** if you have one, and **Customize** to set Network to **Mainnet** and Script Type to your wallet's address type (**Native Segwit - 84** is Crossbill's default). With new words, both are under **Wallet Options**. Then **Load Wallet** (or **Continue** with new words).
+2. **A new wallet from the Krux:** in Crossbill, Add a wallet, **Use my Krux**. On the Krux, **Extended Public Key**, then **ZPUB - QR Code** (YPUB for Nested Segwit, XPUB for Taproot or Legacy), and scan it. Or save it to microSD there and open the `.pub` file in Crossbill.
+3. **A wallet already on this iPhone:** Settings, Wallets, the wallet, **Sign with a Krux**. Type the same seed words on the Krux from your paper copy (with the passphrase, address type and account) and scan its key. Crossbill checks it's the same wallet, then asks whether to take the seed words off this iPhone, so only the Krux can sign (suggested), or keep them so either can. Taking them off needs the key scanned from the Krux's screen, not a file, so Crossbill knows the Krux holds them right then.
+4. **To send:** write the payment as usual and choose **Sign on your Krux** on the review screen. On the Krux: **Sign**, **PSBT**, **Load from camera**, point it at Crossbill's codes, answer **Yes** to *Bitcoin only, Unified SIGHASH_ALL (0x21)*, check every address and amount, and choose **Sign to QR code**. Back in Crossbill, **Scan the Krux's signed codes**, then **Send**.
+5. **With microSD instead of QR codes:** in Crossbill, **Save for microSD instead** and save the file to the card with a card reader (Files app). On the Krux: **Load from SD card**, then **Sign to SD card**. In Crossbill, **Open the signed file** (it ends in `-signed.psbt`).
+
+The Krux can keep your seed words encrypted on itself (**Backup Mnemonic**, **Encrypted**), so you load them **From Storage** next time. That's a convenience, not a backup: keep the paper copy.
 
 ### Widgets (optional)
 
-Shrike has two widgets, **XBT price** and **Balance**, for the Home Screen and the Lock Screen.
+Crossbill has two widgets, **XBT price** and **Balance**, for the Home Screen and the Lock Screen.
 
-- **Home Screen:** touch and hold an empty spot, tap **Edit**, then **Add Widget**. Search for Shrike, pick one, swipe to the size you want and tap **Add Widget**.
-- **Lock Screen:** touch and hold the Lock Screen, tap **Customize**, then **Lock Screen**, tap the row of widgets under the clock and pick a Shrike widget.
+- **Home Screen:** touch and hold an empty spot, tap **Edit**, then **Add Widget**. Search for Crossbill, pick one, swipe to the size you want and tap **Add Widget**.
+- **Lock Screen:** touch and hold the Lock Screen, tap **Customize**, then **Lock Screen**, tap the row of widgets under the clock and pick a Crossbill widget.
 
-Widgets can't run Tor, so they show what Shrike last got through it, with the time, and change when you open Shrike. Settings, Widgets chooses the wallet the Balance widget shows, or keeps the balance out of widgets. Anyone who sees your iPhone can read a widget, on the Lock Screen too. To have iOS hide the Lock Screen balance until Face ID recognizes you, turn off **Lock Screen Widgets** in the iPhone's Settings, Face ID & Passcode, under Allow Access When Locked.
+Widgets can't run Tor, so they show what Crossbill last got through it, with the time, and change when you open Crossbill. Settings, Widgets chooses the wallet the Balance widget shows, or keeps the balance out of widgets. Anyone who sees your iPhone can read a widget, on the Lock Screen too. To have iOS hide the Lock Screen balance until Face ID recognizes you, turn off **Lock Screen Widgets** in the iPhone's Settings, Face ID & Passcode, under Allow Access When Locked.
 
 ## Step 7: Check it with a small amount
 
@@ -138,18 +151,23 @@ Widgets can't run Tor, so they show what Shrike last got through it, with the ti
 | "Couldn't reach your node" after a while | Tap the red banner, then Try Again. Check the node is running and the phone has a connection. |
 | "That code doesn't match" when turning on two-factor or sending | Set the iPhone's clock automatically (Settings, General, Date & Time), and the authenticator's device too. Codes change every 30 seconds; wait for a fresh one. |
 | The Market tab says "Couldn't reach Neoxa Exchange through Tor" | The app tries new routes by itself and shows each step. If it keeps failing, tap **Get it once without Tor**, or turn off **Get the price through Tor** in Settings. |
-| "Tor on this iPhone stopped responding" | Close Shrike (swipe it away in the app switcher) and open it again. |
+| "Tor on this iPhone stopped responding" | Close Crossbill (swipe it away in the app switcher) and open it again. |
 | Signing errors that name **ShrikeWidgets**, or an App Group | In Signing & Capabilities, choose your team for the ShrikeWidgets target too, then click Try Again. Or close Xcode, run `npm run ios:widgets` in this folder, and open it again. |
 | "Failed to show Widget" or "Could not attach to pid" right after a successful build | Xcode ran the widgets on their own. At the top of the window, change **ShrikeWidgets** next to your iPhone's name to **App**, then press Run. The widgets install with the app. |
-| Shrike asks for the app PIN and the Face ID button is gone | Face ID's faces changed since you set the PIN. If that was you, open Settings, App PIN, tap **It was me: use Face ID again** and enter the PIN. If it wasn't, someone with your passcode added a face: change your iPhone passcode and remove the face in the iPhone's Settings, Face ID & Passcode. |
+| Crossbill asks for the app PIN and the Face ID button is gone | Face ID's faces changed since you set the PIN. If that was you, open Settings, App PIN, tap **It was me: use Face ID again** and enter the PIN. If it wasn't, someone with your passcode added a face: change your iPhone passcode and remove the face in the iPhone's Settings, Face ID & Passcode. |
 | "That password doesn't open this backup" | Check the password, capitals included. If the file was edited or damaged, use another copy. |
 | Review says an address "isn't" your contact or an address you paid | It looks like one you know but isn't the same: a common scam. Get the address again from its source and compare every character. |
-| A widget says "Open Shrike to show ..." | Open Shrike once. If Settings, Widgets says the App Group isn't set up, run `npm run ios:sync` and press Run again. |
-| A widget shows an old price | Widgets can't fetch the price themselves. Open Shrike; with a price widget on screen it fetches the price as it opens. |
+| A widget says "Open Crossbill to show ..." | Open Crossbill once. If Settings, Widgets says the App Group isn't set up, run `npm run ios:sync` and press Run again. |
+| A widget shows an old price | Widgets can't fetch the price themselves. Open Crossbill; with a price widget on screen it fetches the price as it opens. |
+| The Krux won't read Crossbill's codes | On the signing screen, set Code detail to **Low**. Turn the iPhone's brightness up and hold the Krux a hand's width or two away. |
+| The Krux warns "Unverified input amounts!" | Expected when a send spends two or more Segwit coins. The unified signature covers every coin's amount, so choose Yes. |
+| The Krux says "Path mismatch", or won't sign | The Krux is set to another address type or account, or holds other seed words or another passphrase. On the Krux, check Wallet, Customize and the passphrase. |
+| "This Krux holds different seed words, or a different passphrase" | When linking, load exactly the wallet's seed words and passphrase on the Krux, then show its key again. |
+| The Krux refuses the transaction straight away | It isn't running Paperclip's firmware. Standard Krux refuses unified signatures. |
 | The wallet isn't found on the node | This version supports the standard account 0 paths only: m/84'/0'/0', m/86'/0'/0', m/49'/0'/0' and m/44'/0'/0'. Check the derivation in desktop Shrike (the wallet's Settings, Keystore). |
 
 ## Making it your own
 
 [README.md](README.md) explains how the app is put together, which file does what and how to run the tests. `npm run dev` runs the screens in a browser against a local test node, which is quicker than installing on the phone for every change.
 
-To give it a name of your own, change `appName` in `capacitor.config.ts` and `CFBundleDisplayName` in `ios/App/App/Info.plist`, and replace the icons in `resources/` and `public/bird.png`. The bird is Shrike's own artwork. If you publish anything, read [NOTICE](NOTICE) first: the code is Apache 2.0, but the Shrike and Sparrow names and logos aren't licensed for use as another product's brand.
+To give it a name of your own, change `appName` in `capacitor.config.ts` and `CFBundleDisplayName` in `ios/App/App/Info.plist` and `ios/App/ShrikeWidgets/Info.plist`, and replace the icons in `resources/`, `public/bird.png`, the launch image and the widgets' bird. If you publish anything, read [NOTICE](NOTICE) first: the code is Apache 2.0, but the Crossbill, Shrike and Sparrow names and logos aren't licensed for use as another product's brand.

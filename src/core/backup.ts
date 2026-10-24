@@ -76,13 +76,13 @@ export function readBackupHeader(text: string): BackupFile {
   try {
     o = JSON.parse(text);
   } catch {
-    throw new BackupError('This isn’t a Shrike backup file', 'not-a-backup');
+    throw new BackupError('This isn’t a Crossbill backup file', 'not-a-backup');
   }
   const f = o as Partial<BackupFile> | null;
   if (!f || typeof f !== 'object' || typeof f.shrikeBackup !== 'number' || typeof f.data !== 'string') {
-    throw new BackupError('This isn’t a Shrike backup file', 'not-a-backup');
+    throw new BackupError('This isn’t a Crossbill backup file', 'not-a-backup');
   }
-  if (f.shrikeBackup > BACKUP_FORMAT) throw new BackupError('This backup was made by a newer version of Shrike. Update the app first.', 'unsupported');
+  if (f.shrikeBackup > BACKUP_FORMAT) throw new BackupError('This backup was made by a newer version of Crossbill. Update the app first.', 'unsupported');
   const k = f.kdf;
   if (
     f.cipher !== 'xchacha20-poly1305' ||
@@ -103,7 +103,7 @@ export function readBackupHeader(text: string): BackupFile {
     typeof f.nonce !== 'string' ||
     typeof f.createdAt !== 'string'
   ) {
-    throw new BackupError('This backup file is damaged or wasn’t made by Shrike', 'not-a-backup');
+    throw new BackupError('This backup file is damaged or wasn’t made by Crossbill', 'not-a-backup');
   }
   return f as BackupFile;
 }

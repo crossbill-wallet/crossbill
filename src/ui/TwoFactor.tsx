@@ -4,7 +4,7 @@ import { friendlyError } from '../app/model';
 import { ShrikeNative } from '../app/native';
 import { Qr, Screen, SecondFactorField, codeReady, copyPrivately, useApp, useNav } from './kit';
 
-const ISSUER = 'Shrike';
+const ISSUER = 'Crossbill';
 const ACCOUNT = 'iPhone wallet';
 
 /**
@@ -55,7 +55,7 @@ export function TwoFactorSetup({ onboarding, onDone, onCancel }: { onboarding?: 
   if (step === 'key') {
     return (
       <Screen title="Add to authenticator" back={false} end={<button onClick={() => setStep('intro')}>Back</button>}>
-        <p style={{ marginTop: 0 }}>Scan this with your authenticator app. It adds an entry called Shrike.</p>
+        <p style={{ marginTop: 0 }}>Scan this with your authenticator app. It adds an entry called Crossbill.</p>
         <Qr text={uri} />
         <div className="section-title">Or type this key</div>
         <div className="secret mono">{groupSecret(secret)}</div>

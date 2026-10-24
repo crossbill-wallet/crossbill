@@ -2,8 +2,8 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 // The bundle ID only has to be unique within your Apple developer team. Change it if Xcode says it is taken.
 const config: CapacitorConfig = {
-  appId: 'com.shrikewallet.mobile.personal',
-  appName: 'Shrike',
+  appId: 'io.github.crossbill-wallet.app',
+  appName: 'Crossbill',
   webDir: 'dist',
   ios: {
     contentInset: 'never',

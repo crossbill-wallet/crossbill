@@ -204,7 +204,7 @@ export function PinScreen() {
                 mismatch();
               }
               await app.setPin(pin);
-              done('The app PIN is on. When Face ID doesn’t work, Shrike asks for it instead of the iPhone passcode.');
+              done('The app PIN is on. When Face ID doesn’t work, Crossbill asks for it instead of the iPhone passcode.');
             }}
           />
         );
@@ -241,7 +241,7 @@ export function PinScreen() {
             title="Enter your PIN to turn it off"
             onComplete={async (pin) => {
               await app.disablePin(pin);
-              done('The app PIN is off. When Face ID doesn’t work, the iPhone passcode opens Shrike again.');
+              done('The app PIN is off. When Face ID doesn’t work, the iPhone passcode opens Crossbill again.');
             }}
           />
         );
@@ -298,10 +298,10 @@ export function PinScreen() {
         pad = (
           <PinPad
             title="Enter your PIN"
-            detail="To let Face ID open Shrike again, with the faces it accepts now."
+            detail="To let Face ID open Crossbill again, with the faces it accepts now."
             onComplete={async (pin) => {
               await app.trustFaceId(pin);
-              done('Face ID opens Shrike again.');
+              done('Face ID opens Crossbill again.');
             }}
           />
         );
@@ -340,7 +340,7 @@ export function PinScreen() {
       {msg && <div className="banner on-banner">{msg}</div>}
       {on && app.faceIdChanged && (
         <div className="banner error" role="alert">
-          Face ID on this iPhone changed since you set the PIN: a face or an appearance was added or removed. Until you confirm it was you, Shrike asks for the PIN instead of using Face ID.
+          Face ID on this iPhone changed since you set the PIN: a face or an appearance was added or removed. Until you confirm it was you, Crossbill asks for the PIN instead of using Face ID.
           <div style={{ marginTop: 10 }}>
             <button className="btn secondary small" onClick={() => setFlow({ step: 'trust' })}>
               It was me: use Face ID again
@@ -350,8 +350,8 @@ export function PinScreen() {
       )}
       <p style={{ marginTop: 0 }}>
         {on
-          ? 'Shrike opens with Face ID. When Face ID doesn’t work, it asks for this PIN instead of the iPhone passcode, to open the app and before reading seed words to sign.'
-          : 'A 6-digit PIN for Shrike alone. When Face ID doesn’t work, Shrike asks for it instead of the iPhone passcode, so someone who has seen your passcode still can’t open your wallets.'}
+          ? 'Crossbill opens with Face ID. When Face ID doesn’t work, it asks for this PIN instead of the iPhone passcode, to open the app and before reading seed words to sign.'
+          : 'A 6-digit PIN for Crossbill alone. When Face ID doesn’t work, Crossbill asks for it instead of the iPhone passcode, so someone who has seen your passcode still can’t open your wallets.'}
       </p>
       {on ? (
         <>
@@ -372,7 +372,7 @@ export function PinScreen() {
           <>
             <div className="section-title">Duress PIN</div>
               <p className="note" style={{ marginTop: 0 }}>
-                If someone forces you to open Shrike, cancel Face ID and type the duress PIN instead of yours. Shrike opens showing only one wallet you choose, with nothing on screen to say others exist.
+                If someone forces you to open Crossbill, cancel Face ID and type the duress PIN instead of yours. Crossbill opens showing only one wallet you choose, with nothing on screen to say others exist.
               </p>
               {decoyWallet ? (
                 <>
@@ -396,7 +396,7 @@ export function PinScreen() {
                     <button className="btn link" onClick={() => nav.push({ name: 'widgets' })}>
                       Widgets
                     </button>
-                    . Skins hint at what you hold too: the Shrike skin gives nothing away.
+                    . Skins hint at what you hold too: the Crossbill skin gives nothing away.
                   </p>
                 </>
               ) : (
@@ -411,7 +411,7 @@ export function PinScreen() {
           Set a PIN
         </button>
       )}
-      <p className="note">Forgot the PIN? Remove Shrike from the iPhone and add your wallets again with your seed words. Wrong PINs make the next try wait longer each time.</p>
+      <p className="note">Forgot the PIN? Remove Crossbill from the iPhone and add your wallets again with your seed words. Wrong PINs make the next try wait longer each time.</p>
     </Screen>
   );
 }

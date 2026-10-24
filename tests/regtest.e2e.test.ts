@@ -1,5 +1,5 @@
 // End to end against a real Bitcoin Knots v29.4.1.knots20260508 node in regtest, with the BLAKE2b fork
-// (and the unified opt-in signature hash with it) activating at height 20, as Shrike's docs set it up.
+// (and the unified opt-in signature hash with it) activating at height 20, as Crossbill's docs set it up.
 //
 // Runs only when KNOTS_BIN points at a directory holding bitcoind and bitcoin-cli:
 //   KNOTS_BIN=/path/to/build/bin npx vitest run tests/regtest.e2e.test.ts
@@ -42,9 +42,10 @@ const net = NETWORKS.regtest;
 const PORT = 18543;
 const RPC = { host: '127.0.0.1', port: PORT, user: 'regtest', password: 'regtest' };
 
+if (process.env.KNOTS_REQUIRED && !BIN) throw new Error('KNOTS_REQUIRED is set, but KNOTS_BIN is missing');
 const run = BIN ? describe : describe.skip;
 
-run('Shrike mobile core against a BLAKE2b regtest node', () => {
+run('Crossbill’s core against a BLAKE2b regtest node', () => {
   let datadir: string;
   let rpc: KnotsRpc;
 
@@ -54,7 +55,7 @@ run('Shrike mobile core against a BLAKE2b regtest node', () => {
   const mine = (n: number, addr?: string) => miner('generatetoaddress', String(n), addr ?? miner('getnewaddress'));
 
   beforeAll(async () => {
-    datadir = mkdtempSync(join(tmpdir(), 'shrike-regtest-'));
+    datadir = mkdtempSync(join(tmpdir(), 'crossbill-regtest-'));
     const p = spawn(join(BIN!, 'bitcoind'), [
       '-regtest',
       `-datadir=${datadir}`,

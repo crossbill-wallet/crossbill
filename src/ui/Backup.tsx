@@ -14,7 +14,7 @@ async function saveFile(fileName: string, text: string): Promise<void> {
   if (isNative) {
     const res = await Filesystem.writeFile({ path: fileName, data: text, directory: Directory.Cache, encoding: Encoding.UTF8 });
     try {
-      await Share.share({ title: 'Shrike backup', url: res.uri });
+      await Share.share({ title: 'Crossbill backup', url: res.uri });
     } finally {
       // The share sheet has made its copy; don't leave one in the app's cache
       await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => undefined);
@@ -45,8 +45,8 @@ export function BackupScreen() {
   return (
     <Screen title="Backup">
       <p style={{ marginTop: 0 }}>
-        One file with everything Shrike keeps besides secrets: your wallets’ names and details, labels and frozen coins, saved contacts, settings and your node’s address. If this iPhone is lost, restore it on
-        the new one, then enter each wallet’s seed words.
+        One file with everything Crossbill keeps besides secrets: your wallets’ names and details, labels and frozen coins, saved contacts, settings and your node’s address. If this iPhone is lost, restore it on
+        the new one, then enter each wallet’s seed words, or scan its Krux.
       </p>
       <dl className="facts">
         <div>
@@ -149,8 +149,14 @@ export function RestoreBackup({ onRestored }: { onRestored?: (s: RestoreSummary)
           {summary.contacts ? ` ${summary.contacts} contact${summary.contacts === 1 ? '' : 's'} added.` : ''}
           {summary.labels ? ` ${summary.labels} label${summary.labels === 1 ? '' : 's'} added to wallets on this phone.` : ''}
           {summary.waiting.length ? ` Waiting for seed words: ${summary.waiting.join(', ')}.` : ''}
-          {!summary.settings && !summary.contacts && !summary.labels && !summary.waiting.length ? ' Everything in it was already on this phone.' : ''}
+          {summary.kruxWaiting.length ? ` Signed on a Krux, back once you scan its key: ${summary.kruxWaiting.join(', ')}.` : ''}
+          {!summary.settings && !summary.contacts && !summary.labels && !summary.waiting.length && !summary.kruxWaiting.length ? ' Everything in it was already on this phone.' : ''}
         </div>
+        {summary.kruxWaiting.length > 0 && !onRestored && (
+          <button className="btn secondary" style={{ marginBottom: 10 }} onClick={() => nav.push({ name: 'add-wallet', krux: true })}>
+            Scan your Krux
+          </button>
+        )}
         {summary.waiting.length > 0 && !onRestored && (
           <button className="btn secondary" onClick={() => nav.push({ name: 'add-wallet' })}>
             Enter seed words

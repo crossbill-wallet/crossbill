@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Shrike</string>
+	<string>Crossbill</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -23,7 +23,7 @@
 			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>shrike</string>
+				<string>crossbill</string>
 			</array>
 		</dict>
 	</array>
@@ -39,11 +39,11 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Shrike uses the camera to scan payment QR codes.</string>
+	<string>Crossbill uses the camera to scan payment QR codes.</string>
 	<key>NSFaceIDUsageDescription</key>
-	<string>Shrike uses Face ID to unlock your seed words when you sign, and to open the app.</string>
+	<string>Crossbill uses Face ID to unlock your seed words when you sign, and to open the app.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Shrike connects to your Bitcoin node when it is on the same network as this iPhone.</string>
+	<string>Crossbill connects to your Bitcoin node when it is on the same network as this iPhone.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

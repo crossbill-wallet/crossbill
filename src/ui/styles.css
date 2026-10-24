@@ -1,4 +1,4 @@
-/* Shrike for iPhone. Palette taken from the desktop app's icon: a black bird with ember edges and a cyan eye.
+/* Crossbill. Palette: ember red, black and white, with a cyan glint for the eye in the band.
    The band carries the balance and every primary action. Ember is kept for the one thing that must stand out,
    a transaction that is not replay protected, and for destructive actions. The cyan eye marks protection.
 
@@ -1108,9 +1108,11 @@ textarea.input {
   padding: calc(var(--safe-top) + 24px) var(--pad) calc(var(--safe-bottom) + 24px);
 }
 
+/* bird.png has room around the bird (it's framed like the launch image), so the margins trim it */
 .welcome img {
-  width: min(78vw, 360px);
-  margin: 24px 0 8px -12px;
+  align-self: center;
+  width: min(100%, 380px);
+  margin: calc(24px - min(100%, 380px) * 0.13) 0 calc(8px - min(100%, 380px) * 0.27);
 }
 
 .welcome h1 {
@@ -1154,7 +1156,9 @@ textarea.input {
 }
 
 /* The lock screen picks up from the launch screen: the same black, and the bird at the size and place the
-   launch image puts it (the launch image fills the screen's height, and the bird spans 30.5% of it). */
+   launch image puts it. The launch image is square and fitted to the screen's width, on black, and bird.png is
+   framed the same way, so drawing bird.png at that size and place lines the two up. The bird's lowest point is
+   20.7% of the image's side below its middle. */
 .lock {
   position: relative;
   height: 100%;
@@ -1176,8 +1180,8 @@ textarea.input {
 .lock img {
   position: absolute;
   left: 50%;
-  top: 47.7%;
-  width: min(32.7vh, 86vw);
+  top: 50%;
+  width: min(100vw, 100vh);
   transform: translate(-50%, -50%);
 }
 
@@ -1185,7 +1189,7 @@ textarea.input {
   position: absolute;
   left: 0;
   right: 0;
-  top: calc(47.7% + min(16.4vh, 43vw) + 14px);
+  top: calc(50% + min(20.7vw, 20.7vh) + 14px);
   text-align: center;
   font-size: var(--t-sm);
   font-weight: 700;
@@ -2030,7 +2034,7 @@ svg.step-mark.failed path {
 
 .lock.pin img {
   top: calc(var(--safe-top) + 11vh);
-  width: min(15vh, 40vw);
+  width: min(26vh, 66vw);
 }
 
 .lock.pin .lock-name {
@@ -2116,4 +2120,29 @@ svg.step-mark.failed path {
   text-decoration: underline;
   text-underline-offset: 3px;
   width: auto;
+}
+
+/* ------------------------------------------------------------ Krux hardware wallet */
+
+/* Codes for the Krux's camera: as large as the screen allows, always black on white with a quiet zone */
+.qr.qr-krux {
+  width: min(100%, 340px);
+  padding: 12px;
+}
+
+/* Questions and answers, one under the other rather than side by side */
+.facts.faq > div {
+  display: block;
+}
+
+.facts.faq dt {
+  color: var(--ink);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.facts.faq dd {
+  text-align: left;
+  color: var(--slate);
+  font-size: var(--t-sm);
 }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// What Shrike last handed to the widgets: the XBT price and one wallet's balance, already worded and formatted
+/// What Crossbill last handed to the widgets: the XBT price and one wallet's balance, already worded and formatted
 /// by the app (src/app/widgets.ts). Widgets can't run Tor, so they never fetch anything themselves.
 struct WidgetSnapshot: Codable {
     struct Look: Codable {

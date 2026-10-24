@@ -15,6 +15,7 @@ import { RecoveryCodes, TwoFactorScreen, TwoFactorSetup } from './TwoFactor';
 import { WidgetsScreen } from './Widgets';
 import { FaceIdGlyph, PinPad, PinScreen, PinSheet } from './Pin';
 import { BackupScreen, RestoreBackup } from './Backup';
+import { HardwareScreen, KruxLink, KruxSignScreen, useResumeKrux } from './Krux';
 
 /** When the page started, so the first lock screen after launch can hold the bird a little longer. */
 const BOOT = Date.now();
@@ -68,13 +69,13 @@ function Lock() {
   return (
     <div className={`lock${phase === 'pin' ? ' pin' : ''}`}>
       <img src="./bird.png" alt="" />
-      <div className="lock-name">Shrike</div>
+      <div className="lock-name">Crossbill</div>
       {phase === 'pin' && (
         <div className="lock-pin">
           <PinPad
             tone="band"
             title="Enter your PIN"
-            detail={app.faceIdChanged ? 'Face ID changed on this iPhone since you set the PIN, so Shrike asks for the PIN. To use Face ID again, go to Settings, App PIN.' : undefined}
+            detail={app.faceIdChanged ? 'Face ID changed on this iPhone since you set the PIN, so Crossbill asks for the PIN. To use Face ID again, go to Settings, App PIN.' : undefined}
             onComplete={(pin) => app.unlockWithPin(pin)}
             extra={app.faceIdChanged ? undefined : { label: <FaceIdGlyph />, aria: 'Try Face ID again', onClick: ask }}
           />
@@ -99,8 +100,8 @@ function Onboarding() {
     return (
       <Screen title="Restore" back={false} end={<button onClick={() => setStep('welcome')}>Back</button>}>
         <p style={{ marginTop: 0 }}>
-          Choose the backup file you saved from Shrike, then enter its password. Your settings, contacts and node’s address come back. Then enter the node’s password, and each wallet’s seed words: backups
-          don’t hold either.
+          Choose the backup file you saved from Crossbill, then enter its password. Your settings, contacts and node’s address come back. Then enter the node’s password, and each wallet’s seed words (or scan
+          its Krux): backups don’t hold either.
         </p>
         <RestoreBackup onRestored={(s) => setTimeout(() => setStep(s.settings && app.settings.node ? 'node' : 'welcome'), 1800)} />
       </Screen>
@@ -132,7 +133,7 @@ function Current({ route }: { route: Route }) {
     case 'node':
       return <NodeForm onSaved={() => nav.pop()} />;
     case 'add-wallet':
-      return <AddWallet seedFrom={route.seedFrom} />;
+      return <AddWallet seedFrom={route.seedFrom} start={route.krux ? 'krux' : route.words ? 'words' : undefined} />;
     case 'wallet-info':
       return <WalletInfo id={route.id} />;
     case 'contact':
@@ -153,6 +154,12 @@ function Current({ route }: { route: Route }) {
       return <PinScreen />;
     case 'backup':
       return <BackupScreen />;
+    case 'hardware':
+      return <HardwareScreen />;
+    case 'krux-link':
+      return <KruxLink id={route.id} removeOnly={route.removeOnly} />;
+    case 'krux-sign':
+      return <KruxSignScreen />;
   }
 }
 
@@ -176,6 +183,7 @@ function Stack() {
   const route = nav.stack[nav.stack.length - 1];
   useStatusBar(route.name === 'home');
   useWidgetLinks();
+  useResumeKrux();
   return (
     <>
       <Current route={route} />

@@ -175,7 +175,7 @@ describe('the Xcode project script', () => {
   const before = readFileSync(join(__dirname, 'vectors/project-before-widgets.pbxproj'), 'utf8');
 
   function copy(pbx: string): string {
-    const dir = mkdtempSync(join(tmpdir(), 'shrike-ios-'));
+    const dir = mkdtempSync(join(tmpdir(), 'crossbill-ios-'));
     mkdirSync(join(dir, 'App.xcodeproj'));
     mkdirSync(join(dir, 'App'));
     mkdirSync(join(dir, 'ShrikeWidgets'));
@@ -195,15 +195,15 @@ describe('the Xcode project script', () => {
     copyFileSync(join(__dirname, '../ios/App/ShrikeWidgets/ShrikeWidgets.entitlements'), join(dir, 'ShrikeWidgets', 'ShrikeWidgets.entitlements'));
     const r = setUpWidgets(dir);
     expect(r.changes).toEqual([]);
-    expect(r.group).toBe('group.com.shrikewallet.mobile.personal');
+    expect(r.group).toBe('group.io.github.crossbill-wallet.app');
     expect(referencesResolve(r.text)).toEqual([]);
   });
 
   it('adds the target to a project with someone’s own bundle ID and team, keeping every line it had', () => {
     // An install from before the widgets, signed with someone's own team and bundle ID
     const original = before.replace(
-      /PRODUCT_BUNDLE_IDENTIFIER = com\.shrikewallet\.mobile\.personal;/g,
-      'DEVELOPMENT_TEAM = ABCDE12345;\n\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = "com.example.my-shrike";',
+      /PRODUCT_BUNDLE_IDENTIFIER = "io\.github\.crossbill-wallet\.app";/g,
+      'DEVELOPMENT_TEAM = ABCDE12345;\n\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = "com.example.my-crossbill";',
     );
     const dir = copy(original);
     const r = setUpWidgets(dir);
@@ -217,7 +217,7 @@ describe('the Xcode project script', () => {
       expect(j, `kept: ${line}`).toBeLessThan(lines.length);
       j++;
     }
-    expect(out).toContain('PRODUCT_BUNDLE_IDENTIFIER = "com.example.my-shrike.widgets";');
+    expect(out).toContain('PRODUCT_BUNDLE_IDENTIFIER = "com.example.my-crossbill.widgets";');
     expect(out.match(/DEVELOPMENT_TEAM = ABCDE12345;/g)).toHaveLength(4);
     expect(referencesResolve(out)).toEqual([]);
     // The app copies the widgets in before the CocoaPods phase at the end
@@ -225,7 +225,7 @@ describe('the Xcode project script', () => {
     expect(phases.indexOf('Embed Foundation Extensions')).toBeGreaterThan(phases.indexOf('/* Resources */'));
     expect(phases.indexOf('Embed Foundation Extensions')).toBeLessThan(phases.indexOf('[CP] Embed Pods Frameworks'));
     for (const f of ['App/App.entitlements', 'ShrikeWidgets/ShrikeWidgets.entitlements']) {
-      expect(readFileSync(join(dir, f), 'utf8')).toContain('<string>group.com.example.my-shrike</string>');
+      expect(readFileSync(join(dir, f), 'utf8')).toContain('<string>group.com.example.my-crossbill</string>');
     }
     // A second run changes nothing
     expect(setUpWidgets(dir).changes).toEqual([]);
@@ -236,14 +236,14 @@ describe('the Xcode project script', () => {
     setUpWidgets(dir);
     const pbx = join(dir, 'App.xcodeproj', 'project.pbxproj');
     const moved = readFileSync(pbx, 'utf8')
-      .replace(/PRODUCT_BUNDLE_IDENTIFIER = com\.shrikewallet\.mobile\.personal;/g, 'PRODUCT_BUNDLE_IDENTIFIER = com.example.other;')
+      .replace(/PRODUCT_BUNDLE_IDENTIFIER = "io\.github\.crossbill-wallet\.app";/g, 'PRODUCT_BUNDLE_IDENTIFIER = com.example.other;')
       .replace(/(isa = XCBuildConfiguration;\n\t\t\tbaseConfigurationReference = [^\n]+\n\t\t\tbuildSettings = \{\n[\s\S]*?)MARKETING_VERSION = [\d.]+;/g, '$1MARKETING_VERSION = 9.9.9;');
     writeFileSync(pbx, moved);
     const r = setUpWidgets(dir);
     expect(r.changes.join('\n')).toMatch(/matched the ShrikeWidgets/);
     const out = readFileSync(pbx, 'utf8');
     expect(out).toContain('PRODUCT_BUNDLE_IDENTIFIER = com.example.other.widgets;');
-    expect(out).not.toContain('com.shrikewallet.mobile.personal');
+    expect(out).not.toContain('io.github.crossbill-wallet.app');
     expect(out.match(/MARKETING_VERSION = 9\.9\.9;/g)).toHaveLength(4);
     expect(readFileSync(join(dir, 'ShrikeWidgets/ShrikeWidgets.entitlements'), 'utf8')).toContain('group.com.example.other');
   });

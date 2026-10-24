@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Share } from '@capacitor/share';
 import { isNative } from '../app/native';
+import { signerOf } from '../app/model';
 import { Address, Field, Qr, Screen, copyText, useApp } from './kit';
 
 export function Receive() {
@@ -32,6 +33,11 @@ export function Receive() {
         {w.config.name}, address m/0/{index}
         {offset > 0 ? `, ${offset} past the next unused one` : ''}
       </p>
+      {signerOf(w.config) !== 'phone' && (
+        <p className="note" style={{ textAlign: 'center' }}>
+          To check it on your Krux: <strong>Address</strong>, <strong>Scan Address</strong>, and point it at this code.
+        </p>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, margin: '18px 0 22px' }}>
         <button
