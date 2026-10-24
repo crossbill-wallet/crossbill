@@ -2,11 +2,11 @@
 
 [![CI](https://github.com/crossbill-wallet/crossbill/actions/workflows/ci.yml/badge.svg)](https://github.com/crossbill-wallet/crossbill/actions/workflows/ci.yml)
 
-An iPhone wallet for Bitcoin (XBT) on the BLAKE2b chain: the chain that changed Bitcoin's proof of work to BLAKE2b and signs with the unified opt-in signature hash. It talks to your own Bitcoin Knots node over Tor, and keeps your seed words in the iPhone Keychain behind Face ID. The only other site it contacts is Neoxa Exchange, for the XBT price, which can be turned off.
+An iPhone wallet for Bitcoin (XBT) on the BLAKE2b chain: the chain that changed Bitcoin's proof of work to BLAKE2b and signs with the unified opt-in signature hash. It talks to your own Bitcoin Knots node over Tor, and keeps your seed words in the iPhone Keychain behind Face ID. Paired with your own Lightning Fork node, it sends and receives on Lightning too. The only other site it contacts is Neoxa Exchange, for the XBT price, which can be turned off.
 
 It works alongside [Shrike](https://shrikewallet.com/), the desktop wallet that parts of it are ported from: a wallet you already use in Shrike on your computer opens here with no rescan.
 
-Crossbill was called Shrike for iPhone before version 0.4.0. It is independent: not affiliated with or endorsed by the Shrike, Sparrow or Bitcoin Knots projects, Paperclip or Connor's Lab.
+Crossbill was called Shrike for iPhone before version 0.4.0. It is independent: not affiliated with or endorsed by the Shrike, Sparrow, Bitcoin Knots or Lightning Fork projects, Paperclip or Connor's Lab.
 
 Not audited. Use at your own risk, under the Apache 2.0 terms (see [LICENSE](LICENSE) and [NOTICE](NOTICE)). Start with a small amount.
 
@@ -23,7 +23,8 @@ Not audited. Use at your own risk, under the Apache 2.0 terms (see [LICENSE](LIC
 - Face ID to open the app and to sign. The seed is read from the Keychain only for the moment of signing. Screens showing seed words warn if a screenshot is taken.
 - Transaction pages link to a block explorer: mempool.guide by default, as in desktop Shrike, or your own, or none. Onion explorers open in Onion Browser.
 - Two-factor: a 6-digit code from any authenticator app (time-based, RFC 6238) before every send, fee raise and cancel, before showing seed words, and to turn it off. Offered once after setup, with Skip, and any time in Settings. Eight one-time recovery codes. The key stays in the Keychain on this device.
-- A tab bar along the bottom: Wallet, Market, Contacts and Settings.
+- A tab bar along the bottom: Wallet, Market, Lightning (once paired), Contacts and Settings.
+- Lightning through your own [Lightning Fork](https://github.com/paulscode/lightning-fork) node, using its dashboard's mobile API: pay Lightning invoices and offers, pay invoices on the SHA256 chain through your node's bridge (your own bridge pays them with BTC, with no XBT spent), make invoices and offers, send and receive on chain from the node's wallet, and see its balances and payments. Pairing is by QR code from the dashboard. At home the app reaches the node over HTTPS pinned to its root certificate, and away it uses the dashboard's onion through Tor. Every payment needs Face ID and the two-factor code when it's on, and carries a request ID, so a lost answer is asked about, never paid twice.
 - Market: the XBT/USDC price from [Neoxa Exchange](https://neoxa.exchange/trade/BTCB2_USDC)'s public API, through Tor, with a chart (day, week, month, year), what XBT is, and links to the community. Tap the balance to see it in US dollars.
 - Contacts: saved addresses, such as exchange deposit addresses, to pick from Saved on the Send screen. After a send to a new address the app offers to save it.
 - Frozen coins show with an ice-blue tint in the Coins list.
@@ -34,7 +35,7 @@ Not audited. Use at your own risk, under the Apache 2.0 terms (see [LICENSE](LIC
 - Widgets for the Home Screen and the Lock Screen: the XBT price, with the day's change and chart, and a wallet's balance in BTC or sats. They show what the app last got through Tor, with the time, and never go online themselves. The balance can be kept out of them in Settings.
 - Paperclip's [K210 Krux Hardware Wallet](https://shop.paperclip-xbt.xyz/product/k210-krux-hardware-wallet/): add a wallet from the key the Krux shows, or link one already on the phone (with the choice to take its seed words off the iPhone). Sends go to the Krux as BBQr codes or a microSD file (an unfinalized PSBT with unified ALL, `0x21`, on every input), and come back the same way. Crossbill checks every signature against the wallet's keys before sending. Settings, Hardware wallet has the guide and links. Only [Paperclip's Krux firmware](https://github.com/connorslab/krux-blake2b) works; standard Krux refuses unified signatures.
 
-What it doesn't do (yet): other hardware wallets, multisig, PSBTs from other apps, payment codes, silent payments, and connecting to anything but your own Knots node.
+What it doesn't do (yet): other hardware wallets, multisig, PSBTs from other apps, payment codes, silent payments, Lightning addresses, managing channels (the dashboard does that), and connecting to anything but your own Knots and Lightning Fork nodes.
 
 ## What you need
 
@@ -100,6 +101,10 @@ If the app doesn't find your wallet on the node, check the derivation in Shrike 
 | What the widgets show | `src/app/widgets.ts`, written for them by `ShrikeNativePlugin.swift` |
 | The widgets themselves (SwiftUI) | `ios/App/ShrikeWidgets` |
 | Adding the widgets to the Xcode project | `scripts/ios-widgets.mjs` |
+| Lightning Fork's mobile API: pairing codes, the ways to the node, the calls | `src/core/lfapi.ts` |
+| Lightning in the app: pairing, approval, payments written down before they're sent | `src/app/lightning.ts`; screens in `src/ui/Lightning.tsx` |
+| HTTPS pinned to the node's root certificate, Wi-Fi or cellular | `plugins/shrike-native/ios/Sources/PinnedTrust.swift` |
+| A pretend Lightning Fork dashboard, for tests and the browser | `tools/lf-mock` |
 | App model and screens | `src/app`, `src/ui` |
 | Native: Tor, Keychain, Face ID, QR scanner | `plugins/shrike-native/ios/Sources` (`TorService.swift` also reopens Tor's local port when iOS takes it back; `QrScanner.swift` stays open for animated codes) |
 
@@ -115,6 +120,7 @@ npm test
 - `tests/twofactor-model.test.ts` covers the two-factor checks in the app model: codes used once, recovery codes, the lockout, and the Keychain deciding whether two-factor is on.
 - `tests/security.test.ts` checks the app PIN's rules and hashing, the backup file (round trip, wrong password, tampering, refusing costly headers) and the look-alike address rules. `tests/security-model.test.ts` covers the PIN standing in for the passcode, Face ID changes, the duress session showing nothing of the hidden wallets, backups and restoring them, and the recipient checks.
 - `tests/widgets.test.ts` checks what the widgets are handed, the short amounts on the round Lock Screen widget, the widgets' colors against the stylesheet, and the script that adds them to the Xcode project, on a project with someone's own bundle ID and team. `tests/widgets-model.test.ts` covers the app handing them a snapshot only when something on it changed, fetching the price for a price widget, the balance setting and the links a widget opens.
+- `tests/lightning.test.ts` covers Lightning against a pretend dashboard: reading pairing codes, the order the ways to the node are tried, pairing at home (pinning the root the code names) and away, refusing a server with another certificate, payments needing the code and Face ID, the own-bridge and service paths for SHA256 invoices, and payments whose answer was lost (behind a proxy's error, across a dashboard restart, after pairing again, or a double tap), each asked about with its request ID and never paid twice.
 - `tests/price-flow.test.ts` covers getting the price after iOS took back Tor's port, retries on new routes, a stuck Tor, going without Tor once, and resending a request the dead port refused.
 - `tests/krux.test.ts` checks the PSBT Crossbill hands the Krux for all four address types, BBQr codes (sizes, any order, the Krux's other replies), reading the Krux's key, and refusing a signature that isn't `0x21`, doesn't verify, or is for another transaction. `tests/krux-model.test.ts` covers linking (keeping or removing the seed words), sends signed on the Krux with no Face ID or code, the waiting send across a lock and never in a duress session, and backups.
 - With `KRUX_SRC` and `KRUX_UUR` set, `tests/krux.test.ts` also hands Crossbill's PSBTs to Paperclip's own signing code, through [tools/krux-check](tools/krux-check/README.md): by QR at each code density and by microSD, for all four address types, with change shown as change. `tests/krux.e2e.test.ts` adds `KNOTS_BIN` and has a regtest node accept and mine what it signed.
@@ -137,7 +143,7 @@ Actions are pinned to full commits. The workflows use only `GITHUB_TOKEN`; no se
 
 ## Trying it in a browser
 
-`DEV_RPC_TARGET=http://127.0.0.1:18443 npm run dev` serves the app on your Mac against a local regtest node, with Tor off. The browser version keeps seed words in memory only and exists for testing screens; don't use it with real funds. Prices come straight from Neoxa Exchange there, or from `DEV_PRICE_TARGET` if set. To see the Market tab's reconnect steps without a phone, set `localStorage['shrike.devTor']` to `dead-port`, `no-route` or `stuck`, reload, and run `__shrike.torAvailable = true` in the console. To see Settings, Widgets with widgets on screen, set `localStorage['shrike.devWidgets']` to a list such as `["ShrikePrice:systemSmall"]`; what the app would hand the widgets is kept in `localStorage['shrike.widgetSnapshot']`. For the app PIN, `localStorage['shrike.devFaceId']` set to `fail` makes Face ID fail, and `changed` acts as if a face was added; `__shrike.locked = true; __shrike['emit']()` shows the lock screen. For the Krux, scanning a key asks for its text; scanning the Krux's signed codes reads them from `localStorage['shrike.devScan']`, a JSON list, as if they came off its screen.
+`DEV_RPC_TARGET=http://127.0.0.1:18443 npm run dev` serves the app on your Mac against a local regtest node, with Tor off. The browser version keeps seed words in memory only and exists for testing screens; don't use it with real funds. Prices come straight from Neoxa Exchange there, or from `DEV_PRICE_TARGET` if set. To see the Market tab's reconnect steps without a phone, set `localStorage['shrike.devTor']` to `dead-port`, `no-route` or `stuck`, reload, and run `__shrike.torAvailable = true` in the console. To see Settings, Widgets with widgets on screen, set `localStorage['shrike.devWidgets']` to a list such as `["ShrikePrice:systemSmall"]`; what the app would hand the widgets is kept in `localStorage['shrike.widgetSnapshot']`. For the app PIN, `localStorage['shrike.devFaceId']` set to `fail` makes Face ID fail, and `changed` acts as if a face was added; `__shrike.locked = true; __shrike['emit']()` shows the lock screen. For the Krux, scanning a key asks for its text; scanning the Krux's signed codes reads them from `localStorage['shrike.devScan']`, a JSON list, as if they came off its screen. For Lightning, run `node tools/lf-mock/server.ts` beside `npm run dev` (Node 22.18 or later): it prints a pairing code to paste in Settings, Lightning, and `http://127.0.0.1:18480/__mock/sample?kind=sha256&amount=1250` makes an invoice to pay (`kind=xbt`, `offer` or `address` for the others). `LF_MOCK_BRIDGE=service` pays SHA256 invoices through a pretend service instead of your own bridge. `localStorage['shrike.devLf']` set to `away` acts as if the iPhone were on cellular (run `__shrike.torAvailable = true` too), and `home-only` or `down` as if the onion, or everything, were unreachable.
 
 ## What's next
 

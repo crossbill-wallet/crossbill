@@ -1,5 +1,29 @@
 # Changes
 
+## 0.4.1
+
+New:
+
+- **Lightning, through your own Lightning Fork node.** Pair Crossbill with the dashboard of [Lightning Fork](https://github.com/paulscode/lightning-fork), Paul Lamb's Lightning node for the BLAKE2b chain, and a **Lightning** tab appears between Market and Contacts. Your node holds the money and the keys. Crossbill holds a key to the dashboard, which you can remove there at any time.
+- **Pairing.** In the dashboard's menu, choose **Mobile app**, then **Pair a phone**, and scan the code from Settings, Lightning in Crossbill. At home Crossbill reaches the node on your network over HTTPS, and trusts only the root certificate whose fingerprint the code carries. Away from home it uses the dashboard's onion address through Crossbill's own Tor.
+- **Send:**
+  - Lightning invoices and offers (BOLT 11 and BOLT 12) on this chain.
+  - Invoices on the SHA256 chain, such as a shop's, through your node's bridge setup.
+  - On-chain sends from your node's wallet, with its fee rates.
+- **SHA256 invoices.** With your own bridge, the bridge's SHA256 node pays the invoice with BTC: no swap, no fee, and no XBT spent. Through a bridge service, Crossbill shows the price in XBT as soon as the invoice is read, with how long the price holds. A price that went up is shown again before anything is paid.
+- **Receive.** An invoice with a QR code, which says when it's paid; a reusable offer; or an on-chain address of your node's wallet.
+- **Balances and activity.** What your channels can send, the node's on-chain balance, and its payments, with the proof of payment for each.
+- **Approval.** Every payment needs Face ID (or the app PIN), and the two-factor code when two-factor is on, as a send from the wallet does. Lightning needs a passcode on the iPhone.
+- **Never paid twice.** Each payment is written down before it's sent and carries a request ID. If the answer is lost, Crossbill asks your node about that same request rather than sending a new one, even after the app was closed.
+- **The duress PIN** opens a session without Lightning.
+- [docs/own-bridge.md](docs/own-bridge.md) walks through running your own bridge on StartOS, so your node pays SHA256 invoices itself.
+
+Changed:
+
+- The native plugin can make HTTPS requests pinned to one root certificate, refuses redirects for them, and tells Wi-Fi from cellular.
+- Backups don't include the Lightning pairing. After restoring, pair again from the dashboard.
+- `npm run dev` can show the Lightning screens against a pretend dashboard, `node tools/lf-mock/server.ts`. Nothing in it is real.
+
 ## 0.4.0
 
 **Shrike for iPhone is now Crossbill.** The community encouraged a name of its own, so the app isn't mistaken for part of the Shrike project, which it isn't. The new name comes with a new logo, a red low-poly crossbill in front of a shield, on the app icon, the launch screen, the lock and welcome screens and the price widget.

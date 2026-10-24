@@ -57,6 +57,7 @@ import { BACKUP_SETTINGS, checkBackupContents, type BackupContents, type BackupW
 import { skinIndex, tierFor, SKINS, type Appearance, type FontId, type SkinId } from './look';
 import { errorKind, isNative, ShrikeNative, type TorHealth } from './native';
 import { readJson, removeJson, writeJson } from './storage';
+import { LightningController } from './lightning';
 import {
   buildWidgetSnapshot,
   CHART_FAMILIES,
@@ -412,6 +413,19 @@ export class AppModel {
   private dayChart: { closes: number[]; at: number } | null = null;
   private dayChartReq: Promise<void> | null = null;
 
+  /** Lightning, through the person's own Lightning Fork node (lightning.ts) */
+  readonly lightning: LightningController = new LightningController({
+    torAvailable: () => this.torAvailable,
+    ensureTor: async () => {
+      if (!isNative) return;
+      await this.readyTorForPrice(false, () => undefined);
+    },
+    inDecoy: () => this.decoy != null,
+    confirmPresence: (reason) => this.confirmPresence(reason),
+    checkSecondFactor: (code) => this.checkSecondFactor(code),
+    changed: () => this.emit(),
+  });
+
   private rpc: KnotsRpc | null = null;
   private listeners = new Set<() => void>();
   private busy: Promise<void> | null = null;
@@ -459,6 +473,7 @@ export class AppModel {
     this.pinDeadline = performance.now() + (pinAttempts?.remaining ?? 0) * 1000;
     await this.syncPinFlag(s == null && savedConfigs == null);
     this.restoreWaiting = (await readJson<BackupWallet[]>(RESTORE_FILE)) ?? [];
+    await this.lightning.init();
     this.widgetLast = await readJson<WidgetSnapshot>(WIDGETS_FILE);
     this.widgetJson = this.widgetLast ? JSON.stringify(this.widgetLast) : '';
     const day = this.widgetLast?.price;
@@ -2233,6 +2248,27 @@ export class AppModel {
       this.pinAsk = ask;
       this.emit();
     });
+  }
+
+  /**
+   * That it's you, before money moves without a seed being read (a Lightning payment): Face ID, or the passcode.
+   * With the app PIN on, Face ID alone, and the PIN when Face ID doesn't confirm it. Throws "Cancelled".
+   */
+  async confirmPresence(reason: string): Promise<void> {
+    const session = this.session;
+    if (this.pinOn) {
+      const res = await ShrikeNative.authenticate({ reason, biometricsOnly: true, fallbackTitle: 'Use PIN' });
+      if (res.changed && !this.faceIdChanged) {
+        this.faceIdChanged = true;
+        this.emit();
+      }
+      if (res.ok && session === this.session) return;
+      if (session !== this.session || !(await this.askPin(reason)) || session !== this.session) throw new Error('Cancelled');
+      return;
+    }
+    const res = await ShrikeNative.authenticate({ reason, requirePasscode: true });
+    if (res.noPasscode) throw new Error('Set a passcode on this iPhone, or turn on the app PIN, to pay with Lightning.');
+    if (!res.ok || session !== this.session) throw new Error('Cancelled');
   }
 
   /** The PIN typed for a pending request. Throws with a message if it's wrong. */

@@ -16,6 +16,7 @@ import { WidgetsScreen } from './Widgets';
 import { FaceIdGlyph, PinPad, PinScreen, PinSheet } from './Pin';
 import { BackupScreen, RestoreBackup } from './Backup';
 import { HardwareScreen, KruxLink, KruxSignScreen, useResumeKrux } from './Krux';
+import { LightningPair, LightningReceive, LightningSend, LightningSettings, LightningTab } from './Lightning';
 
 /** When the page started, so the first lock screen after launch can hold the bird a little longer. */
 const BOOT = Date.now();
@@ -118,6 +119,16 @@ function Current({ route }: { route: Route }) {
       return <Home />;
     case 'market':
       return <Market />;
+    case 'lightning':
+      return <LightningTab />;
+    case 'ln-pair':
+      return <LightningPair />;
+    case 'ln-send':
+      return <LightningSend input={route.input} />;
+    case 'ln-receive':
+      return <LightningReceive />;
+    case 'ln-settings':
+      return <LightningSettings />;
     case 'contacts':
       return <Contacts />;
     case 'settings':

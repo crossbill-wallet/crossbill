@@ -3,7 +3,8 @@
 // None of this ships in the iPhone build, where the Swift plugin answers instead.
 
 import { WebPlugin } from '@capacitor/core';
-import type { NativeHttpRequest, ShrikeNativePlugin, TorHealth, TorRepairResult, TorStatus, WidgetTrouble } from './native';
+import type { NativeHttpRequest, NativeHttpResponse, NetworkPath, ShrikeNativePlugin, TorHealth, TorRepairResult, TorStatus, WidgetTrouble } from './native';
+import { certFingerprint } from '../core/lfapi';
 
 const memoryVault = new Map<string, string>();
 
@@ -23,6 +24,22 @@ function devTor(): string | null {
   }
 }
 
+/**
+ * A pretend way to a Lightning node, for the Lightning screens in a browser (tools/lf-mock answers for the node).
+ * localStorage 'shrike.devLf':
+ *   unset       both its home address and its onion answer, and the iPhone is on Wi-Fi
+ *   'away'      on cellular: only the onion answers
+ *   'home-only' Tor is down: only the home address answers
+ *   'down'      nothing answers
+ */
+function devLf(): string | null {
+  try {
+    return localStorage.getItem('shrike.devLf');
+  } catch {
+    return null;
+  }
+}
+
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 class Refused extends Error {
@@ -36,6 +53,8 @@ class Refused extends Error {
 
 export class ShrikeNativeWeb extends WebPlugin implements ShrikeNativePlugin {
   private socksDead = devTor() === 'dead-port';
+  /** The pretend Lightning node's root certificate */
+  private lfRoot: string | null = null;
 
   async torStart(): Promise<void> {}
 
@@ -61,8 +80,14 @@ export class ShrikeNativeWeb extends WebPlugin implements ShrikeNativePlugin {
     return { ok: true, reopened, port: reopened ? 39051 : 39050 };
   }
 
-  async httpRequest(req: NativeHttpRequest): Promise<{ status: number; body: string }> {
+  async networkPath(): Promise<NetworkPath> {
+    const away = devLf() === 'away';
+    return { known: true, satisfied: true, wifi: !away, wired: false, cellular: away, other: false };
+  }
+
+  async httpRequest(req: NativeHttpRequest): Promise<NativeHttpResponse> {
     const u = new URL(req.url);
+    if (u.pathname.startsWith('/api/v1/') && u.hostname !== 'neoxa.exchange') return this.lightning(req, u);
     if (req.method === 'GET') {
       if (req.useTor) {
         const mode = devTor();
@@ -87,6 +112,45 @@ export class ShrikeNativeWeb extends WebPlugin implements ShrikeNativePlugin {
         signal: ctrl.signal,
       });
       return { status: res.status, body: await res.text() };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * https://<home address or onion>/api/v1/... -> /__lf/api/v1/..., forwarded by vite.config.ts to DEV_LF_TARGET.
+   * The pretend node's root certificate, from /__mock/root, stands in for the TLS chain the iPhone checks.
+   */
+  private async lightning(req: NativeHttpRequest, u: URL): Promise<NativeHttpResponse> {
+    const onion = u.hostname.endsWith('.onion');
+    const mode = devLf();
+    if (onion && !req.useTor) throw new Error('An onion address needs Tor');
+    if (mode === 'down' || (onion && mode === 'home-only') || (!onion && mode === 'away')) {
+      await pause(onion ? 1500 : 400);
+      throw new Refused('Could not connect to the server. (-1004, 61)', onion ? 'network' : 'timeout');
+    }
+    if (onion) await pause(500);
+    // As on the iPhone, a home address's certificate is checked before anything is sent to it
+    let rootPem: string | undefined;
+    if (!onion) {
+      const root: string = this.lfRoot ?? (await (await fetch('/__lf/__mock/root')).text());
+      this.lfRoot = root;
+      const presented = certFingerprint(root);
+      const wanted = req.pinPem ? certFingerprint(req.pinPem) : (req.captureRootSha256 ?? '').toUpperCase();
+      if (!wanted || presented !== wanted) throw new Refused('This node’s certificate isn’t the one this phone paired with', 'certificate');
+      if (!req.pinPem) rootPem = root;
+    }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), req.timeoutMs);
+    try {
+      const res = await fetch(`/__lf${u.pathname}${u.search}`, {
+        method: req.method ?? 'POST',
+        headers: req.headers,
+        body: req.method === 'GET' ? undefined : req.body,
+        signal: ctrl.signal,
+        redirect: 'manual',
+      });
+      return { status: res.status, body: await res.text(), ...(rootPem ? { rootPem } : {}) };
     } finally {
       clearTimeout(timer);
     }

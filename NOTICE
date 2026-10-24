@@ -4,7 +4,7 @@ Copyright 2026 the Crossbill authors
 Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 Crossbill is an independent iPhone wallet. It is not affiliated with, endorsed by or supported by the Shrike
-or Sparrow projects, Bitcoin Knots, Paperclip or Connor's Lab. Before version 0.4.0 it was called "Shrike for
+or Sparrow projects, Bitcoin Knots, Lightning Fork, Paperclip or Connor's Lab. Before version 0.4.0 it was called "Shrike for
 iPhone".
 
 Parts of it are reimplemented, in TypeScript and Swift, from Shrike (https://github.com/privkeyio/shrike,
@@ -20,6 +20,13 @@ rewritten in TypeScript for this app, which changes them from the originals:
   src/core/txbuilder.ts  coin selection and change, modeled on Sparrow's
   src/core/sync.ts       compatibility with Sparrow's Cormorant watch-only wallet on Bitcoin Core/Knots
   src/core/explorer.ts   block explorer links, as Shrike builds them
+
+Lightning: Crossbill talks to the mobile API of the Lightning Fork dashboard, the web interface that Paul Lamb
+forked from Umbrel's Lightning app for Lightning Fork (https://github.com/paulscode/lightning-fork), his LND
+fork for the BLAKE2b chain. Crossbill's client (src/core/lfapi.ts) is written from that API's documentation,
+docs/mobile-api.md in https://github.com/paulscode/umbrel-lightning-fork. No code from the dashboard, from
+Lightning Fork or from its Android app is included. tools/lf-mock is a pretend dashboard written for Crossbill's
+tests from the same documentation.
 
 The Crossbill Wallet logo, a red low-poly crossbill in front of a shield, is Crossbill's own, as are the app
 icon, launch image and in-app images made from it (resources/icon.png, public/bird.png, and the Splash and

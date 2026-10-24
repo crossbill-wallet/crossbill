@@ -115,6 +115,21 @@ Crossbill works with Paperclip's [K210 Krux Hardware Wallet](https://shop.paperc
 
 The Krux can keep your seed words encrypted on itself (**Backup Mnemonic**, **Encrypted**), so you load them **From Storage** next time. That's a convenience, not a backup: keep the paper copy.
 
+### Lightning (optional)
+
+If you run [Lightning Fork](https://github.com/paulscode/lightning-fork) on StartOS, Crossbill can send and receive Lightning payments through it. Your node keeps the money and the keys; the iPhone gets a key to the node's dashboard, which you can remove there.
+
+1. **For paying away from home,** give the dashboard an onion address first. In StartOS, either accept the **Add Onion Service** task Lightning Fork shows, or open Lightning Fork's **Dashboard** interface and add a Tor address there. Leave **SSL off**: Tor already encrypts the connection.
+2. **On your computer,** open the Lightning Fork dashboard. In its menu, choose **Mobile app**, then **Pair a phone**, and enter the dashboard's password (Lightning Fork's **Dashboard Password** action shows it).
+3. **In Crossbill,** open Settings, **Lightning**, and tap **Scan**. Point the iPhone at the code; it works once, for five minutes. The first time, iOS asks whether Crossbill may find devices on your local network: allow it, so Crossbill can reach the node at home.
+4. The **Lightning** tab appears between Market and Contacts.
+
+At home, Crossbill talks to the node on your network, over HTTPS it checks against the certificate fingerprint in the code. Away from home, it uses the onion through its own Tor.
+
+**Paying a shop's Lightning invoice** usually means paying an invoice on the SHA256 chain. Your node pays it through a bridge, set up in the dashboard under **Paying SHA256 invoices**: either your own bridge, which pays with BTC from a Lightning node on the SHA256 chain on your server ([docs/own-bridge.md](docs/own-bridge.md) walks through it), or a service someone runs for you, which you pay in XBT. Crossbill says which before you pay.
+
+Changing the dashboard password, restoring Lightning Fork to another server, or a new root certificate on the server means pairing again. To remove the iPhone, use Settings, Lightning, **Unpair this iPhone**, or remove it under Mobile app in the dashboard.
+
 ### Widgets (optional)
 
 Crossbill has two widgets, **XBT price** and **Balance**, for the Home Screen and the Lock Screen.
@@ -164,6 +179,13 @@ Widgets can't run Tor, so they show what Crossbill last got through it, with the
 | The Krux says "Path mismatch", or won't sign | The Krux is set to another address type or account, or holds other seed words or another passphrase. On the Krux, check Wallet, Customize and the passphrase. |
 | "This Krux holds different seed words, or a different passphrase" | When linking, load exactly the wallet's seed words and passphrase on the Krux, then show its key again. |
 | The Krux refuses the transaction straight away | It isn't running Paperclip's firmware. Standard Krux refuses unified signatures. |
+| Lightning: "Can't reach your Lightning node" away from home | The dashboard needs an onion address with SSL off. See [Lightning](#lightning-optional). Settings, Lightning shows whether Crossbill knows one. |
+| Lightning: "The node didn't accept that code" | Codes work once, for five minutes. Make a new one: Mobile app, Pair a phone. |
+| Lightning: "Your node no longer accepts this iPhone" | The dashboard password changed, or the iPhone was removed under Mobile app. Pair again. |
+| Lightning: "the node's certificate doesn't match" | Lightning Fork was restored to another server, or the server has a new root certificate. Pair again, and remove the old entry under Mobile app. |
+| Lightning: pairing at home fails, and there's no onion yet | Allow Local Network for Crossbill in the iPhone's Settings, Privacy & Security, Local Network, then scan a new code. |
+| Lightning: "SHA256 invoices can't be paid yet" | Set up a bridge in the dashboard, under Paying SHA256 invoices. |
+| Lightning: "Set a passcode on this iPhone" | Lightning needs an iPhone passcode, as seed words do. |
 | The wallet isn't found on the node | This version supports the standard account 0 paths only: m/84'/0'/0', m/86'/0'/0', m/49'/0'/0' and m/44'/0'/0'. Check the derivation in desktop Shrike (the wallet's Settings, Keystore). |
 
 ## Making it your own

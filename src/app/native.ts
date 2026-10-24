@@ -38,11 +38,21 @@ export interface TorRepairResult {
  * Codes native errors carry, besides the message. "refused" means the proxy on the phone refused the connection,
  * so the request never left the phone.
  */
-export type NativeErrorKind = 'refused' | 'timeout' | 'offline' | 'network' | 'needs-pin';
+export type NativeErrorKind = 'refused' | 'timeout' | 'offline' | 'network' | 'needs-pin' | 'certificate';
 
 export function errorKind(e: unknown): NativeErrorKind | undefined {
   const code = (e as { code?: unknown } | null)?.code;
-  return code === 'refused' || code === 'timeout' || code === 'offline' || code === 'network' || code === 'needs-pin' ? code : undefined;
+  return code === 'refused' || code === 'timeout' || code === 'offline' || code === 'network' || code === 'needs-pin' || code === 'certificate' ? code : undefined;
+}
+
+/** How the iPhone is connected right now. A VPN, such as WireGuard to a home network, shows as `other`. */
+export interface NetworkPath {
+  known: boolean;
+  satisfied?: boolean;
+  wifi: boolean;
+  wired: boolean;
+  cellular: boolean;
+  other: boolean;
 }
 
 /** Why the widgets can't be handed anything: the build has no App Group, or this is the browser stand-in. */
@@ -57,6 +67,21 @@ export interface NativeHttpRequest {
   timeoutMs: number;
   /** Route through the embedded Tor client. Required for .onion hosts. */
   useTor: boolean;
+  /**
+   * Without Tor: HTTPS whose chain must end in this root certificate and no other (a Lightning node's home
+   * address). Fails with the code "certificate" when it doesn't.
+   */
+  pinPem?: string;
+  /** Without Tor, before the root is known: the SHA-256 the last certificate presented must have; it comes back as rootPem. */
+  captureRootSha256?: string;
+  /** Never follow a redirect: the request's key goes to the address asked and no other. */
+  noRedirect?: boolean;
+}
+
+export interface NativeHttpResponse {
+  status: number;
+  body: string;
+  rootPem?: string;
 }
 
 export interface ShrikeNativePlugin {
@@ -70,20 +95,26 @@ export interface ShrikeNativePlugin {
    * runs at a time. The app also does this by itself each time it comes back from the background.
    */
   torRepair(opts: { newCircuit: boolean; freshPort?: boolean }): Promise<TorRepairResult>;
-  httpRequest(req: NativeHttpRequest): Promise<{ status: number; body: string }>;
+  httpRequest(req: NativeHttpRequest): Promise<NativeHttpResponse>;
+  /** Wi-Fi, cellular or a VPN, for choosing between a Lightning node's home address and its onion. */
+  networkPath(): Promise<NetworkPath>;
   /**
    * Stores a secret in the iOS Keychain. With requireAuth the item is bound to the device passcode and
-   * reading it asks for Face ID, Touch ID or the passcode every time (kSecAccessControlUserPresence).
+   * reading it asks for Face ID, Touch ID or the passcode every time (kSecAccessControlUserPresence). With
+   * whenPasscodeSet it's read without asking, but exists only while the iPhone has a passcode.
    */
-  vaultSet(opts: { key: string; value: string; requireAuth: boolean }): Promise<void>;
+  vaultSet(opts: { key: string; value: string; requireAuth: boolean; whenPasscodeSet?: boolean }): Promise<void>;
   /**
    * Reads a Keychain item. With biometricsOnly (the app PIN is on), Face ID alone is tried first, with "Use PIN"
    * instead of the iPhone passcode, and a failure rejects with code "needs-pin" so the page can ask for the PIN.
    */
   vaultGet(opts: { key: string; prompt: string; biometricsOnly?: boolean; fallbackTitle?: string }): Promise<{ value: string | null }>;
   vaultDelete(opts: { key: string }): Promise<void>;
-  /** Face ID, or the passcode. With biometricsOnly, Face ID alone; pin is true when the app PIN should be asked for instead. */
-  authenticate(opts: { reason: string; biometricsOnly?: boolean; fallbackTitle?: string }): Promise<{ ok: boolean; pin?: boolean; changed?: boolean }>;
+  /**
+   * Face ID, or the passcode. With biometricsOnly, Face ID alone; pin is true when the app PIN should be asked for
+   * instead. Without a passcode on the iPhone it answers ok, unless requirePasscode, which answers noPasscode.
+   */
+  authenticate(opts: { reason: string; biometricsOnly?: boolean; fallbackTitle?: string; requirePasscode?: boolean }): Promise<{ ok: boolean; pin?: boolean; changed?: boolean; noPasscode?: boolean }>;
   /**
    * The faces Face ID accepts, while the app PIN is on. set trusts the current ones, clear forgets them, check says
    * whether they've changed. Once they change (anyone with the passcode can add a face), Face ID alone no longer

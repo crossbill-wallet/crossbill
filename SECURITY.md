@@ -31,6 +31,16 @@ The backup holds wallet details (extended public keys, names, labels, frozen coi
 Crossbill compares each recipient with your saved contacts, addresses you've paid and your own, and flags one that matches at the start and the end without being the same. That catches the usual address-poisoning trick, but not an address that's entirely different, such as one swapped in your clipboard. Check every address against where it came from.
 
 
+## Lightning
+
+With Lightning paired, the iPhone holds one secret for it: a key to the Lightning Fork node's dashboard, kept in the Keychain on this device and only while the iPhone has a passcode. That key can spend the node's money through the dashboard's mobile API, so Crossbill asks for Face ID (or the app PIN), and the two-factor code when it's on, before every payment. Anyone who has the key can do what the app can, without those checks, so remove the iPhone under Mobile app in the dashboard if it's lost. Changing the dashboard password revokes every phone's key.
+
+At home Crossbill talks to the node's LAN address over HTTPS, trusting only the root certificate whose SHA-256 fingerprint the pairing code carries, and nothing else for it. It doesn't check the host name, since the node is reached at addresses its certificate may not name, so any server with a certificate from that root is trusted: on StartOS that root signs the certificates of every service on the same server. Away from home it uses the dashboard's onion address through Tor, which authenticates the onion itself. Redirects are never followed, so the key is sent only to those addresses.
+
+A payment is written down on the iPhone, with a request ID, before it's sent. When the answer doesn't come back, or isn't the node's own (a proxy's error page, a timeout), Crossbill keeps it and asks the node about that request ID, which the node answers with the first outcome rather than paying again. It does that by itself only when the node has said it has the payment. When it may never have arrived, asking again would pay it, so Crossbill waits for you to ask. A payment started before pairing again is never asked about under the new pairing. Stopping tracking a payment doesn't cancel it; check the node's activity before paying again.
+
+The duress PIN opens a session with no Lightning tab, and pairing fails there as if the node were unreachable. Backups don't hold the dashboard key or the pairing.
+
 ## Signing on a Krux
 
 For a wallet linked to Paperclip's Krux, Crossbill hands the Krux an unsigned transaction (a PSBT) and takes back only its signatures. Before sending, Crossbill checks the returned transaction is the one it built, that every signature verifies against the wallet's own key for that input, and that each is a unified ALL signature (`0x21`). A reply that fails any of these is refused. The Krux shows each destination, amount, change and fee before it signs, so a compromised phone can't get it to sign a different payment without that showing on the Krux's screen: check what the Krux shows, not only what the phone shows.

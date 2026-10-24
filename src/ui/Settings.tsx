@@ -142,6 +142,12 @@ export function Settings() {
         }
         onClick={() => nav.push({ name: 'node' })}
       />
+      <Row
+        title="Lightning"
+        meta={app.lightning.paired ? `Paired with ${app.lightning.state.bootstrap?.node?.alias || app.lightning.state.link?.alias || 'your Lightning Fork node'}` : 'Pair with your Lightning Fork node to send and receive on Lightning'}
+        end={app.lightning.paired ? 'On' : 'Off'}
+        onClick={() => nav.push({ name: app.lightning.paired ? 'ln-settings' : 'ln-pair' })}
+      />
       <Row title="Block explorer" meta={explorer == null ? 'None' : explorer === DEFAULT_EXPLORER ? 'mempool.guide' : explorer.replace(/^https?:\/\//, '')} onClick={() => nav.push({ name: 'explorer' })} />
       <Row title="Replay protection" meta={decisionSummary(decision)} onClick={() => nav.push({ name: 'replay' })} />
 

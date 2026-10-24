@@ -27,6 +27,12 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/__rpc/, '') || '/',
       },
+      // A Lightning Fork node's mobile API: the pretend dashboard in tools/lf-mock by default
+      '/__lf': {
+        target: process.env.DEV_LF_TARGET ?? 'http://127.0.0.1:18480',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/__lf/, '') || '/',
+      },
       // The XBT price, straight from Neoxa Exchange (or a stand-in for tests) without Tor
       '/__price': {
         target: process.env.DEV_PRICE_TARGET ?? 'https://neoxa.exchange',

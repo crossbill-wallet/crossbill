@@ -1,7 +1,7 @@
 {
   "name": "crossbill",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Crossbill: an independent iPhone wallet for Bitcoin (XBT) on the BLAKE2b chain, talking to your own Knots node over Tor.",
   "type": "module",
   "scripts": {

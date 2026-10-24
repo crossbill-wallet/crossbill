@@ -35,6 +35,7 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "biometryTrust", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "widgetsUpdate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "widgetsInstalled", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "networkPath", returnType: CAPPluginReturnPromise),
     ]
 
     private static let vaultService = "shrike.mobile.vault"
@@ -43,6 +44,8 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
     private var scanner: QrScanner?
 
     public override func load() {
+        // Starts watching the network now, so the first Lightning request already knows Wi-Fi from cellular
+        _ = NetworkWatch.shared
         NotificationCenter.default.addObserver(self, selector: #selector(appWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(appDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(appWillEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
@@ -90,13 +93,33 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let useTor = call.getBool("useTor") ?? true
+        // A Lightning Fork node at home: HTTPS whose chain must end in the root this phone pinned (pinPem), or,
+        // while pairing, in the root whose SHA-256 the pairing code carries (captureRootSha256)
+        let pinPem = call.getString("pinPem")
+        let captureRoot = call.getString("captureRootSha256")
+        let noRedirect = call.getBool("noRedirect") ?? false
         let session: URLSession
+        var pinned: PinnedTrustDelegate?
         if useTor {
             guard let s = TorService.shared.readySession() else {
                 call.reject("Tor is not connected yet")
                 return
             }
             session = s
+        } else if pinPem != nil || captureRoot != nil {
+            var anchor: Data?
+            if let pem = pinPem {
+                guard let der = PinnedTrustDelegate.der(fromPEM: pem) else {
+                    call.reject("The saved certificate for this node can't be read", "certificate")
+                    return
+                }
+                anchor = der
+            }
+            let delegate = PinnedTrustDelegate(anchorDER: anchor, captureSha256: captureRoot)
+            pinned = delegate
+            let config = URLSessionConfiguration.ephemeral
+            config.waitsForConnectivity = false
+            session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
         } else {
             session = plainSession
         }
@@ -116,8 +139,13 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
             }
         }
 
-        session.dataTask(with: request) { data, response, error in
+        let task = session.dataTask(with: request) { data, response, error in
+            if pinned != nil { session.finishTasksAndInvalidate() }
             if let error = error {
+                if pinned?.certificateFailed == true {
+                    call.reject("This node's certificate isn't the one this phone paired with", "certificate")
+                    return
+                }
                 // Keep the codes: "A TLS error caused the secure connection to fail" alone doesn't say which part
                 // of the handshake failed, and the stream code (-98xx) does
                 let ns = error as NSError
@@ -130,8 +158,19 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let body = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-            call.resolve(["status": status, "body": body])
-        }.resume()
+            var result: [String: Any] = ["status": status, "body": body]
+            if let root = pinned?.capturedPEM { result["rootPem"] = root }
+            call.resolve(result)
+        }
+        // The pinned session refuses redirects itself; over Tor the session's own delegate stays in charge of the
+        // onion's certificate, and this one only stops a redirect
+        if noRedirect && pinned == nil { task.delegate = NoRedirectDelegate() }
+        task.resume()
+    }
+
+    /// Wi-Fi, cellular or a VPN, for choosing between a node's home address and its onion.
+    @objc func networkPath(_ call: CAPPluginCall) {
+        call.resolve(NetworkWatch.shared.snapshot())
     }
 
     /// A short name for what went wrong, passed to the page as the error's code. "refused" means the connection
@@ -166,6 +205,8 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let requireAuth = call.getBool("requireAuth") ?? false
+        // Readable without a prompt, but only while the iPhone has a passcode: removing it deletes the item
+        let whenPasscodeSet = call.getBool("whenPasscodeSet") ?? false
         DispatchQueue.global(qos: .userInitiated).async {
             let base = self.baseQuery(key)
             SecItemDelete(base as CFDictionary)
@@ -180,13 +221,15 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 }
                 add[kSecAttrAccessControl as String] = access
             } else {
-                add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+                add[kSecAttrAccessible as String] = whenPasscodeSet ? kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly : kSecAttrAccessibleWhenUnlockedThisDeviceOnly
             }
             let status = SecItemAdd(add as CFDictionary, nil)
             if status == errSecSuccess {
                 call.resolve()
             } else if requireAuth && (status == errSecNotAvailable || status == errSecAuthFailed || status == errSecParam) {
                 call.reject("Set a passcode on this iPhone first. The seed words can only be stored behind one.")
+            } else if whenPasscodeSet && (status == errSecNotAvailable || status == errSecAuthFailed || status == errSecParam || status == errSecDecode) {
+                call.reject("Set a passcode on this iPhone first. Lightning needs one.", "no-passcode")
             } else {
                 call.reject("The Keychain refused to save this (error \(status))")
             }
@@ -291,8 +334,13 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
-            // No passcode on the device, so there is nothing to check against
-            call.resolve(["ok": true])
+            // No passcode on the device, so there is nothing to check against. Where something must be checked
+            // (a Lightning payment, which reads no seed words), that's a refusal
+            if call.getBool("requirePasscode") ?? false {
+                call.resolve(["ok": false, "noPasscode": true])
+            } else {
+                call.resolve(["ok": true])
+            }
             return
         }
         context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { ok, _ in

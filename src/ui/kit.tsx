@@ -49,12 +49,17 @@ export function ScreenshotWarning() {
 
 // ------------------------------------------------------------------ navigation
 
-/** The four screens on the tab bar. Everything else is pushed on top of one of them. */
-export type TabName = 'home' | 'market' | 'contacts' | 'settings';
+/** The screens on the tab bar (Lightning once paired). Everything else is pushed on top of one of them. */
+export type TabName = 'home' | 'market' | 'lightning' | 'contacts' | 'settings';
 
 export type Route =
   | { name: 'home' }
   | { name: 'market' }
+  | { name: 'lightning' }
+  | { name: 'ln-pair' }
+  | { name: 'ln-send'; input?: string }
+  | { name: 'ln-receive' }
+  | { name: 'ln-settings' }
   | { name: 'contacts' }
   | { name: 'settings' }
   | { name: 'receive' }
@@ -182,6 +187,14 @@ export function MarketIcon({ size = 26 }: { size?: number }) {
   );
 }
 
+export function LightningIcon({ size = 26 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...ICON}>
+      <path d="M13.6 2.6 5.4 13.3h6l-1.2 8.1 8.4-10.9h-6.1z" />
+    </svg>
+  );
+}
+
 export function ContactsIcon({ size = 26 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden {...ICON}>
@@ -207,16 +220,20 @@ export function Snowflake({ size = 12 }: { size?: number }) {
 const TABS: { name: TabName; label: string; icon: (p: { size?: number }) => ReactNode }[] = [
   { name: 'home', label: 'Wallet', icon: WalletIcon },
   { name: 'market', label: 'Market', icon: MarketIcon },
+  { name: 'lightning', label: 'Lightning', icon: LightningIcon },
   { name: 'contacts', label: 'Contacts', icon: ContactsIcon },
   { name: 'settings', label: 'Settings', icon: GearIcon },
 ];
 
 /**
- * The tab bar along the bottom of the four main screens. It stays put while the screen above it scrolls, and
+ * The tab bar along the bottom of the main screens. It stays put while the screen above it scrolls, and
  * gives way to screens pushed on top, such as Send, which have a Back button instead.
  */
 export function TabBar() {
   const nav = useNav();
+  const app = useApp();
+  // Lightning shows once this iPhone is paired with a Lightning Fork node
+  const tabs = TABS.filter((t) => t.name !== 'lightning' || app.lightning.paired);
   const current = nav.stack[0].name;
   useEffect(() => {
     document.body.classList.add('has-tabbar');
@@ -224,7 +241,7 @@ export function TabBar() {
   }, []);
   return (
     <nav className="tabbar" aria-label="Main">
-      {TABS.map((t) => (
+      {tabs.map((t) => (
         <button
           key={t.name}
           aria-current={current === t.name ? 'page' : undefined}
