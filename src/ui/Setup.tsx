@@ -10,6 +10,7 @@ import { seedWordsFeedback, WORD_COUNTS } from '../core/seedwords';
 import { Choice, Field, ReplayStatus, Screen, ScreenshotWarning, SecondFactorField, Toggle, codeReady, useApp, useNav, useScreenshotAlert } from './kit';
 import { signerOf } from '../app/model';
 import { AddKrux } from './Krux';
+import { isServer } from '../app/target';
 
 export function Welcome({ onStart, onRestore }: { onStart: () => void; onRestore: () => void }) {
   return (
@@ -259,6 +260,8 @@ export function AddWallet({ back = true, onDone, seedFrom, start }: { back?: boo
     );
   }
 
+  // On StartOS, wallets are watch-only and sign on a Krux: there are no seed words to choose
+  if (isServer) return <AddKrux onBack={() => (back ? nav.pop() : undefined)} onDone={done} />;
   if (step === 'krux') return <AddKrux onBack={() => (start === 'krux' && back ? nav.pop() : setStep('choose'))} onDone={done} />;
 
   if (step === 'choose') {

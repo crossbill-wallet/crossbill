@@ -37,6 +37,7 @@ import {
 } from '../core/lfapi';
 import { errorKind, ShrikeNative, type NetworkPath } from './native';
 import { readJson, removeJson, writeJson } from './storage';
+import { isServer } from './target';
 
 export const LIGHTNING_FILE = 'lightning.json';
 export const LIGHTNING_PENDING_FILE = 'lightning-pending.json';
@@ -131,7 +132,8 @@ export interface LightningHost {
 const LAN_CHECK_MS = 60_000;
 /** How long the home address gets to answer that check. */
 const LAN_PROBE_MS = 4_000;
-const DEVICE_LABEL = 'Crossbill on iPhone';
+/** How the dashboard lists this pairing */
+const DEVICE_LABEL = isServer ? 'Crossbill on StartOS' : 'Crossbill on iPhone';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
