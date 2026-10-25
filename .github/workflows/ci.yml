@@ -1,7 +1,7 @@
-# Checks every push and pull request: the type check and tests, Crossbill's PSBTs against Paperclip's own Krux
-# signing code, and an unsigned build of the whole iOS app (app, native plugin and widgets), so Swift that doesn't
-# compile shows up here rather than in Xcode. Once a week, and on request, it also runs the regtest suites against
-# Bitcoin Knots built from source.
+# Checks every push and pull request: the type check and tests (the StartOS server's among them, and its build of
+# the screens), Crossbill's PSBTs against Paperclip's own Krux signing code, and an unsigned build of the whole iOS
+# app (app, native plugin and widgets), so Swift that doesn't compile shows up here rather than in Xcode. Once a
+# week, and on request, it also runs the regtest suites against Bitcoin Knots built from source.
 #
 # Actions are pinned to full commits, with the release they are in a comment.
 
@@ -41,6 +41,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - name: Build the StartOS version's screens
+        run: npm run build:server
 
   krux:
     name: Paperclip's Krux signing code

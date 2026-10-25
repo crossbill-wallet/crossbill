@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-server/
 .vite/
 ios/App/Pods/
 ios/App/App/public/
@@ -10,3 +11,5 @@ ios/App/App.xcodeproj/xcuserdata/
 ios/App/DerivedData/
 *.log
 .DS_Store
+# The Crossbill server's data folder when run from here (npm run server)
+/data/

@@ -1,0 +1,9 @@
+.git
+node_modules
+dist
+dist-server
+data
+ios/App/Pods
+ios/App/DerivedData
+*.log
+.DS_Store

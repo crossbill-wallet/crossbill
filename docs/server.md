@@ -1,0 +1,78 @@
+# Crossbill on StartOS: the server
+
+The same Crossbill screens, served from your own server to any browser, for StartOS node runners who'd rather not install an iPhone app, or who want their wallet on a computer too. It isn't packaged for StartOS yet: this page covers the server itself, and trying it from a Mac against your own node.
+
+## How it differs from the iPhone app
+
+- **Watch-only.** The server never holds seed words: it refuses to store them, and there's no screen to enter them. Wallets are added from a Krux's key and every send is signed on the Krux, by microSD file (or, for now, by pasting its QR codes' text: there's no camera scanner in the browser yet).
+- **Signing in.** One password opens Crossbill on the server. At first start the server makes one at random, prints it in its log and leaves it in `initial-password.txt` in its data folder. `npm run server -- set-password` changes it and signs out every session. There's no Face ID, app PIN or duress PIN; two-factor works as on the iPhone.
+- **The node is set on the server,** not in the page: the server reaches Bitcoin Knots with an RPC password the page never sees, and passes on only the RPC calls the app makes, to the node and its `cormorant` wallet.
+- **Lightning payments are off until you turn them on** for the server (`npm run server -- lightning-payments on`, or `CROSSBILL_LIGHTNING_PAYMENTS=on`). Off, Crossbill still pairs with Lightning Fork, shows balances and activity, and makes invoices, offers and addresses; a payment is refused by the server before it reaches the node, and the page says why. Lightning Fork's pairing key can pay, so this is how the server keeps a signed-in page from paying until you've decided it may.
+- **The server reaches Lightning Fork through StartOS** (or the dashboard's onion through Tor), never through its home address.
+- **No widgets, no Tor in the page.** The price comes through the server, and through Tor only when the server has a Tor proxy.
+
+## Settings
+
+The server reads these environment variables:
+
+| Variable | What it is |
+| --- | --- |
+| `CROSSBILL_RPC_URL` | Bitcoin Knots' RPC address, such as `http://10.0.3.1:8332`, or its onion: `https://….onion` (needs `CROSSBILL_TOR_SOCKS`). Required |
+| `CROSSBILL_RPC_USER`, `CROSSBILL_RPC_PASSWORD` | The RPC user and password. `CROSSBILL_RPC_PASSWORD_FILE` reads the password from a file instead |
+| `CROSSBILL_RPC_CA_FILE` | For an `https` RPC address that isn't an onion: the root certificate to trust, and no other (a StartOS server's root) |
+| `CROSSBILL_NETWORK` | `mainnet` (the default), `testnet4` or `regtest` |
+| `CROSSBILL_LF_URL` | Lightning Fork's dashboard, as the server reaches it. Unset: only the onion in the pairing code, through Tor |
+| `CROSSBILL_LF_CA_FILE` | As `CROSSBILL_RPC_CA_FILE`, for an `https` dashboard address |
+| `CROSSBILL_LIGHTNING_PAYMENTS` | `on` or `off`. Set, it overrides the setting `lightning-payments` keeps |
+| `CROSSBILL_TOR_SOCKS` | A Tor SOCKS proxy, `host:port`, for onion addresses and the price through Tor |
+| `CROSSBILL_HOST`, `CROSSBILL_PORT` | Where the page is served: `0.0.0.0` and `8080` by default |
+| `CROSSBILL_DATA_DIR` | The data folder: `./data` by default |
+| `CROSSBILL_STATIC_DIR` | The built screens: `dist-server` by default |
+| `CROSSBILL_RPC_EXTRA_METHODS` | RPC methods to allow besides the app's own, comma separated. Normally unset |
+
+The data folder holds the app's files (`app/`), the vault (two-factor and the Lightning key, never seed words), the password's hash, and the server's own settings. Back it up as you would the iPhone's backup file.
+
+## Trying it from your Mac against your own node
+
+This reaches your node the way the iPhone app does: Bitcoin Knots' RPC onion, through Tor on the Mac.
+
+1. **Node.js 22.18 or later.** `node -v` says which you have; `brew upgrade node` if it's older.
+2. **Tor on the Mac:** `brew install tor`, then `brew services start tor`. Its proxy listens on `127.0.0.1:9050`.
+3. **Build the screens,** from this folder: `npm install`, then `npm run build:server`.
+4. **The node's details,** the same ones the iPhone app uses: on StartOS, Bitcoin Knots, **Interfaces**, **RPC**, the onion address in the Tor section, and the user and password from the **Generate RPC User Credentials** action.
+5. **Start the server,** with your own values in place of the examples:
+
+   ```sh
+   CROSSBILL_RPC_URL=https://youronionaddress.onion \
+   CROSSBILL_RPC_USER=crossbill \
+   CROSSBILL_RPC_PASSWORD='the RPC password' \
+   CROSSBILL_TOR_SOCKS=127.0.0.1:9050 \
+   CROSSBILL_HOST=127.0.0.1 \
+   npm run server
+   ```
+
+   It prints the password to sign in with. `CROSSBILL_HOST=127.0.0.1` keeps the page on this Mac only.
+6. **Open** http://127.0.0.1:8080 in a browser and sign in. Crossbill connects to your node through Tor; the first time takes up to a minute.
+7. **Add your Krux wallet:** on the Krux, save its key to microSD (or show its QR code), then choose **Open the key file from microSD** (or paste the code's text). Check the balance and the first receive address match the iPhone app.
+8. **A small send:** build it, choose **Save for microSD**, sign it on the Krux (**Load from SD card**, **Sign to SD card**), and open the signed file back in Crossbill. Check it in the iPhone app, or Shrike on your computer.
+9. **Lightning, if you want to try it:** in the Lightning Fork dashboard, **Mobile app**, **Pair a phone**, then in Crossbill's Settings, **Lightning**, paste what the pairing code holds (its `lightningfork://pair` link, or its text). The dashboard lists the pairing as **Crossbill on StartOS**: remove it there when you're done. Payments stay off unless you also run `npm run server -- lightning-payments on` from this folder, in another Terminal window; it takes effect straight away.
+
+When you're done, stop the server with Control-C. Everything it kept is in `./data`; delete that folder to start over.
+
+## Trying it without a node
+
+The tests run the server against a pretend node and the pretend Lightning Fork dashboard: `npx vitest run tests/server.test.ts tests/server-model.test.ts`. For the screens against the pretend dashboard, run `node tools/lf-mock/server.ts`, start the server with `CROSSBILL_LF_URL=http://127.0.0.1:18480` (and any RPC address: without a node the page says it can't connect), then pair with the code the pretend dashboard prints.
+
+## Developing the screens
+
+`npm run dev -- --mode server` serves the StartOS build with live reloading on http://127.0.0.1:5173, and forwards the API and the sign-in page to a server started with `npm run server` (or the one in `DEV_SERVER_TARGET`). Sign in at http://127.0.0.1:5173/login.
+
+## The image
+
+`docker build -f server/Dockerfile -t crossbill-server .` builds an image with the server and its screens and nothing else at run time: the server uses Node.js alone. It serves on port 8080 and keeps its data in `/data`.
+
+## Not done yet
+
+- The StartOS package itself: its manifest, the dependency on Bitcoin Knots (and optionally Lightning Fork), the actions to show and change the password and to turn Lightning payments on, backups of the data folder, and the interface StartOS publishes on the network and over Tor.
+- A camera scanner in the browser, for the Krux's QR codes.
+- A way to sign out from the page.

@@ -106,6 +106,8 @@ If the app doesn't find your wallet on the node, check the derivation in Shrike 
 | HTTPS pinned to the node's root certificate, Wi-Fi or cellular | `plugins/shrike-native/ios/Sources/PinnedTrust.swift` |
 | A pretend Lightning Fork dashboard, for tests and the browser | `tools/lf-mock` |
 | App model and screens | `src/app`, `src/ui` |
+| The StartOS build: which build this is, and the browser's stand-in for the native plugin | `src/app/target.ts`, `src/app/server-native.ts`, `src/app/server-api.ts` |
+| The StartOS server: sign-in, the app's files, and the way to the node and Lightning Fork | `server/` ([docs/server.md](docs/server.md)) |
 | Native: Tor, Keychain, Face ID, QR scanner | `plugins/shrike-native/ios/Sources` (`TorService.swift` also reopens Tor's local port when iOS takes it back; `QrScanner.swift` stays open for animated codes) |
 
 ## Tests
@@ -124,6 +126,7 @@ npm test
 - `tests/price-flow.test.ts` covers getting the price after iOS took back Tor's port, retries on new routes, a stuck Tor, going without Tor once, and resending a request the dead port refused.
 - `tests/krux.test.ts` checks the PSBT Crossbill hands the Krux for all four address types, BBQr codes (sizes, any order, the Krux's other replies), reading the Krux's key, and refusing a signature that isn't `0x21`, doesn't verify, or is for another transaction. `tests/krux-model.test.ts` covers linking (keeping or removing the seed words), sends signed on the Krux with no Face ID or code, the waiting send across a lock and never in a duress session, and backups.
 - With `KRUX_SRC` and `KRUX_UUR` set, `tests/krux.test.ts` also hands Crossbill's PSBTs to Paperclip's own signing code, through [tools/krux-check](tools/krux-check/README.md): by QR at each code density and by microSD, for all four address types, with change shown as change. `tests/krux.e2e.test.ts` adds `KNOTS_BIN` and has a regtest node accept and mine what it signed.
+- `tests/server.test.ts` covers the StartOS server: the password made at first start, sessions a page on another site can't use, signing everyone out when the password changes, the app's files and a vault that refuses seed words, passing on only the RPC calls the app makes with the password only the server holds, Lightning through StartOS or Tor with payments refused (in a way the app knows moved nothing) until turned on, and the price from Neoxa Exchange only. `tests/server-model.test.ts` runs the app model as the StartOS page against that server.
 - `tests/regtest.e2e.test.ts` runs the whole core against a real Bitcoin Knots `v29.4.1.knots20260508` node in regtest, with the fork activating at height 20: it checks the opt-in is declined before activation and taken after, that the node accepts sends from all four address types, that a forged `0x21` is refused, that fee bumping replaces the original, and that a spent coin is never offered again. Point it at a build of that Knots tag: `KNOTS_BIN=/path/to/knots/build/bin npm test`.
 
 `tools/vectorgen` holds the Java program that produced the reference vectors from Shrike's own library.
@@ -144,6 +147,10 @@ Actions are pinned to full commits. The workflows use only `GITHUB_TOKEN`; no se
 ## Trying it in a browser
 
 `DEV_RPC_TARGET=http://127.0.0.1:18443 npm run dev` serves the app on your Mac against a local regtest node, with Tor off. The browser version keeps seed words in memory only and exists for testing screens; don't use it with real funds. Prices come straight from Neoxa Exchange there, or from `DEV_PRICE_TARGET` if set. To see the Market tab's reconnect steps without a phone, set `localStorage['shrike.devTor']` to `dead-port`, `no-route` or `stuck`, reload, and run `__shrike.torAvailable = true` in the console. To see Settings, Widgets with widgets on screen, set `localStorage['shrike.devWidgets']` to a list such as `["ShrikePrice:systemSmall"]`; what the app would hand the widgets is kept in `localStorage['shrike.widgetSnapshot']`. For the app PIN, `localStorage['shrike.devFaceId']` set to `fail` makes Face ID fail, and `changed` acts as if a face was added; `__shrike.locked = true; __shrike['emit']()` shows the lock screen. For the Krux, scanning a key asks for its text; scanning the Krux's signed codes reads them from `localStorage['shrike.devScan']`, a JSON list, as if they came off its screen. For Lightning, run `node tools/lf-mock/server.ts` beside `npm run dev` (Node 22.18 or later): it prints a pairing code to paste in Settings, Lightning, and `http://127.0.0.1:18480/__mock/sample?kind=sha256&amount=1250` makes an invoice to pay (`kind=xbt`, `offer` or `address` for the others). `LF_MOCK_BRIDGE=service` pays SHA256 invoices through a pretend service instead of your own bridge. `localStorage['shrike.devLf']` set to `away` acts as if the iPhone were on cellular (run `__shrike.torAvailable = true` too), and `home-only` or `down` as if the onion, or everything, were unreachable.
+
+## Crossbill on StartOS
+
+The same screens, served from your own StartOS server to a browser: watch-only, signed on a Krux, with the node's password kept on the server and Lightning payments off until you turn them on. It isn't packaged for StartOS yet. [docs/server.md](docs/server.md) explains how it differs from the iPhone app and how to try it from a Mac against your own node. `npm run build:server` builds its screens into `dist-server`, and `npm run server` starts it.
 
 ## What's next
 
