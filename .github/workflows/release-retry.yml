@@ -1,0 +1,74 @@
+# When the Release build fails because GitHub found no Mac to run it ("The job was not acquired by Runner"),
+# waits and runs the failed job again, up to three times. Any other failure is left alone: that's a real
+# problem to look at, and running it again wouldn't help.
+#
+# It runs on Linux, which is plentiful and free for public repositories, and only re-runs the build: it builds
+# nothing, signs nothing and holds no secrets. GitHub always takes this file from main, so it covers every
+# release, including re-runs of earlier ones started by hand.
+
+name: Retry release build
+
+on:
+  workflow_run:
+    workflows: ["Release build"]
+    types: [completed]
+
+permissions:
+  actions: write
+  checks: read
+  contents: read
+
+# One retry loop per release build at a time
+concurrency:
+  group: release-retry-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  retry:
+    name: Retry when no Mac was free
+    # Only after a failure, and not for the re-runs this job starts itself (it watches those)
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.triggering_actor.login != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    # Three waits of 45 minutes, plus up to three builds
+    timeout-minutes: 340
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      TRIES: "3"
+      WAIT_MINUTES: "45"
+    steps:
+      - name: Wait, re-run and watch
+        run: |
+          set -euo pipefail
+
+          # True when every failed job of the run's latest attempt failed only because no Mac picked it up
+          no_mac_found() {
+            local attempt jobs
+            attempt=$(gh api "repos/$REPO/actions/runs/$RUN_ID" -q .run_attempt)
+            jobs=$(gh api "repos/$REPO/actions/runs/$RUN_ID/attempts/$attempt/jobs" -q '.jobs[] | select(.conclusion == "failure") | .id')
+            [ -n "$jobs" ] || return 1
+            for job in $jobs; do
+              gh api "repos/$REPO/check-runs/$job/annotations" -q '.[].message' | grep -q 'not acquired by Runner' || return 1
+            done
+          }
+
+          for try in $(seq 1 "$TRIES"); do
+            if ! no_mac_found; then
+              echo "The build didn't fail for want of a Mac, so it's left alone. Look at its log."
+              exit 0
+            fi
+            echo "No Mac was free. Waiting $WAIT_MINUTES minutes before try $try of $TRIES."
+            sleep $((WAIT_MINUTES * 60))
+            gh run rerun "$RUN_ID" --failed -R "$REPO"
+            sleep 30
+            if gh run watch "$RUN_ID" -R "$REPO" --exit-status --interval 60; then
+              echo "The release build passed on try $try."
+              exit 0
+            fi
+          done
+
+          echo "Still failing after $TRIES tries. Run it again by hand later (gh run rerun $RUN_ID --failed), or build on your Mac."
+          exit 1
