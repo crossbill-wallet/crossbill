@@ -1,5 +1,6 @@
 // The bridge to the app's own native plugin (ios/App/App/ShrikeNativePlugin.swift). In a browser during
-// development it falls back to web-native.ts, which is for testing only and never holds a real seed.
+// development it falls back to web-native.ts, which is for testing only and never holds a real seed. The StartOS
+// build (src/app/target.ts) uses server-native.ts instead, which asks the Crossbill server.
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 
@@ -149,8 +150,11 @@ export interface ShrikeNativePlugin {
   addListener(eventName: 'qrPart', listener: (e: { value: string }) => void): Promise<PluginListenerHandle>;
 }
 
+// The target is spelled out here (rather than read from target.ts) so the iPhone build drops the StartOS code
+const STARTOS_BUILD = typeof __CROSSBILL_TARGET__ !== 'undefined' && __CROSSBILL_TARGET__ === 'server';
+
 export const ShrikeNative = registerPlugin<ShrikeNativePlugin>('ShrikeNative', {
-  web: () => import('./web-native').then((m) => new m.ShrikeNativeWeb()),
+  web: () => (STARTOS_BUILD ? import('./server-native').then((m) => new m.ShrikeNativeServer()) : import('./web-native').then((m) => new m.ShrikeNativeWeb())),
 });
 
 export const isNative = Capacitor.isNativePlatform();

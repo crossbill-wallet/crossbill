@@ -13,7 +13,8 @@
     "isolatedModules": true,
     "resolveJsonModule": true,
     "types": ["node", "vite/client"],
-    "noEmit": true
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["src", "tests", "vite.config.ts", "vitest.config.ts", "capacitor.config.ts"]
+  "include": ["src", "tests", "server", "vite.config.ts", "vitest.config.ts", "capacitor.config.ts"]
 }

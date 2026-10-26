@@ -56,6 +56,8 @@ import { matchWallet, parseHardwareKey, type HardwareKey } from '../core/hwkey';
 import { BACKUP_SETTINGS, checkBackupContents, type BackupContents, type BackupWallet } from './backup';
 import { skinIndex, tierFor, SKINS, type Appearance, type FontId, type SkinId } from './look';
 import { errorKind, isNative, ShrikeNative, type TorHealth } from './native';
+import { serverInfo } from './server-api';
+import { isServer } from './target';
 import { readJson, removeJson, writeJson } from './storage';
 import { LightningController } from './lightning';
 import {
@@ -360,7 +362,10 @@ export class AppModel {
   locked = false;
   contacts: Contact[] = [];
   price: PriceState = { ticker: null, at: 0, error: null, problem: null, loading: false, steps: null, showSteps: false, attempt: 0, failures: 0, viaTor: false };
-  /** Whether the embedded Tor exists here: the iPhone app. Tests and the browser stand-in can turn it on */
+  /**
+   * Whether the embedded Tor exists here: the iPhone app. Tests and the browser stand-in can turn it on. On StartOS
+   * it's whether the Crossbill server has a Tor proxy
+   */
   torAvailable = isNative;
   /** Pauses in the price steps, so each can be seen. Tests set them to zero */
   priceTiming = { beat: 350, settle: 900, backoff: [2500, 5000], circuitWait: 20_000, askTimeout: 30_000 };
@@ -415,7 +420,8 @@ export class AppModel {
 
   /** Lightning, through the person's own Lightning Fork node (lightning.ts) */
   readonly lightning: LightningController = new LightningController({
-    torAvailable: () => this.torAvailable,
+    // On StartOS the Crossbill server carries the onion route: through StartOS's own network to the node, or Tor
+    torAvailable: () => this.torAvailable || isServer,
     ensureTor: async () => {
       if (!isNative) return;
       await this.readyTorForPrice(false, () => undefined);
@@ -455,6 +461,20 @@ export class AppModel {
   async init(): Promise<void> {
     const s = await readJson<Settings>(SETTINGS_FILE);
     if (s) this.settings = { ...DEFAULT_SETTINGS, ...s };
+    if (isServer) {
+      // On StartOS the node is set there, and the server reaches it with a password only the server holds. Signing
+      // in to the server opens the app, so there's no app PIN or Face ID to ask for
+      const info = await serverInfo();
+      this.torAvailable = info.tor;
+      this.settings = {
+        ...this.settings,
+        network: info.network,
+        node: { host: info.node.host, port: info.node.port, user: '', useTor: false, tls: info.node.tls },
+        pricesOverTor: this.settings.pricesOverTor && info.tor,
+        lockOnOpen: false,
+        appPin: false,
+      };
+    }
     const savedConfigs = await readJson<WalletConfig[]>(WALLETS_FILE);
     const configs = savedConfigs ?? [];
     for (const c of configs) {
@@ -696,6 +716,7 @@ export class AppModel {
   }
 
   async saveNode(node: NodeSettings, password: string, network: NetworkName): Promise<void> {
+    if (isServer) throw new Error('On StartOS the node is set in Crossbill’s settings there.');
     await ShrikeNative.vaultSet({ key: RPC_PASSWORD_KEY, value: password, requireAuth: false });
     await this.updateSettings({ node, network });
     this.rpc = null;
@@ -903,6 +924,7 @@ export class AppModel {
    * Krux, its seed words go back on this iPhone instead, so it can sign on either. Returns which happened.
    */
   async addWallet(input: { name: string; mnemonic: string; passphrase: string; scriptType: ScriptType; rescan: RescanChoice }): Promise<'added' | 'seed-back'> {
+    if (isServer) throw new Error('Crossbill on StartOS is watch-only and never keeps seed words. Add the wallet from your Krux.');
     const mnemonic = normalizeMnemonic(input.mnemonic);
     const acct = deriveAccount(mnemonic, input.passphrase, input.scriptType, this.net);
     const already = this.wallets.find((w) => w.config.xpub === acct.xpub && w.config.network === this.settings.network);

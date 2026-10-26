@@ -7,6 +7,7 @@ import { DECISION_TEXT, decisionSummary } from '../core/replay';
 import { friendlyError, signerOf } from '../app/model';
 import { KruxWalletSection } from './Krux';
 import { isNative } from '../app/native';
+import { isServer } from '../app/target';
 import { FONTS, SKINS } from '../app/look';
 import { APP_REPO, DONATION_ADDRESS } from '../app/links';
 import {
@@ -72,19 +73,24 @@ export function Settings() {
 
       <div className="section-title">Security</div>
       <Row title="Two-factor" meta={app.settings.twoFactor ? 'A code is needed to send and to show seed words' : 'Off. Sends need Face ID only'} end={app.settings.twoFactor ? 'On' : 'Off'} onClick={() => nav.push({ name: 'two-factor' })} />
-      <Row
-        title="App PIN"
-        meta={app.pinOn ? 'Asked for when Face ID doesn’t work, instead of the iPhone passcode' : 'Off. When Face ID doesn’t work, the iPhone passcode opens Crossbill'}
-        end={app.pinOn ? 'On' : 'Off'}
-        onClick={() => nav.push({ name: 'pin' })}
-      />
-      <Toggle
-        label="Ask for Face ID to open"
-        detail={app.pinOn ? 'Always on while the app PIN is on.' : 'And again after a minute away. Signing always asks.'}
-        checked={app.settings.lockOnOpen || app.pinOn}
-        onChange={(v) => void app.updateSettings({ lockOnOpen: v })}
-        disabled={app.pinOn}
-      />
+      {/* On StartOS, signing in to the server opens Crossbill: there's no Face ID or app PIN */}
+      {!isServer && (
+        <>
+          <Row
+            title="App PIN"
+            meta={app.pinOn ? 'Asked for when Face ID doesn’t work, instead of the iPhone passcode' : 'Off. When Face ID doesn’t work, the iPhone passcode opens Crossbill'}
+            end={app.pinOn ? 'On' : 'Off'}
+            onClick={() => nav.push({ name: 'pin' })}
+          />
+          <Toggle
+            label="Ask for Face ID to open"
+            detail={app.pinOn ? 'Always on while the app PIN is on.' : 'And again after a minute away. Signing always asks.'}
+            checked={app.settings.lockOnOpen || app.pinOn}
+            onChange={(v) => void app.updateSettings({ lockOnOpen: v })}
+            disabled={app.pinOn}
+          />
+        </>
+      )}
 
       <Row
         title="Backup"
@@ -115,7 +121,7 @@ export function Settings() {
         checked={app.settings.prices}
         onChange={(v) => void app.updateSettings({ prices: v, ...(v ? {} : { balanceView: 'coin' as const }) })}
       />
-      {app.settings.prices && (
+      {app.settings.prices && (!isServer || app.torAvailable) && (
         <Toggle
           label="Get the price through Tor"
           detail="So the exchange doesn’t see this iPhone’s IP address. Turn off if the price won’t load through Tor."
@@ -124,11 +130,13 @@ export function Settings() {
         />
       )}
 
-      <Row
-        title="Widgets"
-        meta={`XBT price and balance${app.widgets.installed.length ? `, ${app.widgets.installed.length} on your screens` : ' for the Home Screen and Lock Screen'}`}
-        onClick={() => nav.push({ name: 'widgets' })}
-      />
+      {!isServer && (
+        <Row
+          title="Widgets"
+          meta={`XBT price and balance${app.widgets.installed.length ? `, ${app.widgets.installed.length} on your screens` : ' for the Home Screen and Lock Screen'}`}
+          onClick={() => nav.push({ name: 'widgets' })}
+        />
+      )}
 
       <div className="section-title">Node</div>
       <Row
@@ -138,9 +146,10 @@ export function Settings() {
             {app.settings.network === 'mainnet' ? 'Mainnet' : app.settings.network === 'testnet4' ? 'Testnet4' : 'Regtest'}
             {node?.useTor ? ', through Tor' : ''}
             {app.node ? `, ${app.node.subversion.replace(/^\/|\/$/g, '')}` : ''}
+            {isServer ? '. Set on StartOS' : ''}
           </>
         }
-        onClick={() => nav.push({ name: 'node' })}
+        onClick={() => (isServer ? undefined : nav.push({ name: 'node' }))}
       />
       <Row
         title="Lightning"
