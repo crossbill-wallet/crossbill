@@ -75,7 +75,7 @@ export function PinPad({
   });
 
   return (
-    <div className={`pinpad ${tone}`}>
+    <div className={`pinpad${tone === 'band' ? ' on-band' : ''}`}>
       <div className="pin-title">{title}</div>
       {detail && <div className="pin-detail">{detail}</div>}
       <div key={shake} className={`pin-dots${shake ? ' shake' : ''}`} role="img" aria-label={`${digits.length} of ${PIN_LENGTH} digits entered`}>

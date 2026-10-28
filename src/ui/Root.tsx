@@ -1,15 +1,16 @@
 import { useEffect, useReducer, useState } from 'react';
+import { App as CapApp } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
 import { applyLook, onSystemThemeChange, resolveTheme } from '../app/look';
 import { isNative } from '../app/native';
-import { NavProvider, Screen, TabBar, useApp, useNav, type Route } from './kit';
+import { NavProvider, Screen, TabBar, useApp, useNav, useTabSwipe, type Route } from './kit';
 import { Home } from './Home';
 import { Market } from './Market';
 import { ContactEdit, Contacts } from './Contacts';
 import { Receive } from './Receive';
 import { Send } from './Send';
 import { Bump, TxDetail } from './Tx';
-import { Appearance, Donate, ExplorerScreen, ReplayScreen, Settings, WalletInfo } from './Settings';
+import { Appearance, Donate, ExplorerScreen, ReplayScreen, Settings, SettingsGroup, WalletInfo } from './Settings';
 import { AddWallet, NodeForm, Welcome } from './Setup';
 import { RecoveryCodes, TwoFactorScreen, TwoFactorSetup } from './TwoFactor';
 import { WidgetsScreen } from './Widgets';
@@ -20,6 +21,28 @@ import { LightningPair, LightningReceive, LightningSend, LightningSettings, Ligh
 
 /** When the page started, so the first lock screen after launch can hold the bird a little longer. */
 const BOOT = Date.now();
+
+/** Resolves once the app is on screen: iOS can start it in the background for a check. */
+async function whenOnScreen(): Promise<void> {
+  if (!isNative) return;
+  try {
+    if ((await CapApp.getState()).isActive) return;
+  } catch {
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      void handle.then((h) => h.remove());
+      resolve();
+    };
+    const handle = CapApp.addListener('appStateChange', ({ isActive }) => isActive && finish());
+    // It may have come on screen before the listener was in place
+    void handle.then(() => CapApp.getState()).then((s) => s.isActive && finish(), () => undefined);
+  });
+}
 
 /** Applies light or dark, the skin and the font, and follows the iPhone when set to match it. */
 function useLook() {
@@ -63,8 +86,16 @@ function Lock() {
     });
   };
   useEffect(() => {
-    const t = setTimeout(ask, Date.now() - BOOT < 4000 ? 1600 : 700);
-    return () => clearTimeout(t);
+    let gone = false;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    // iOS can start the app in the background for a check: Face ID waits until it's on screen
+    void whenOnScreen().then(() => {
+      if (!gone) t = setTimeout(ask, Date.now() - BOOT < 4000 ? 1600 : 700);
+    });
+    return () => {
+      gone = true;
+      clearTimeout(t);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
@@ -76,7 +107,7 @@ function Lock() {
           <PinPad
             tone="band"
             title="Enter your PIN"
-            detail={app.faceIdChanged ? 'Face ID changed on this iPhone since you set the PIN, so Crossbill asks for the PIN. To use Face ID again, go to Settings, App PIN.' : undefined}
+            detail={app.faceIdChanged ? 'Face ID changed on this iPhone since you set the PIN, so Crossbill asks for the PIN. To use Face ID again, go to Settings, Security, App PIN.' : undefined}
             onComplete={(pin) => app.unlockWithPin(pin)}
             extra={app.faceIdChanged ? undefined : { label: <FaceIdGlyph />, aria: 'Try Face ID again', onClick: ask }}
           />
@@ -133,6 +164,8 @@ function Current({ route }: { route: Route }) {
       return <Contacts />;
     case 'settings':
       return <Settings />;
+    case 'settings-group':
+      return <SettingsGroup group={route.group} />;
     case 'receive':
       return <Receive />;
     case 'send':
@@ -195,6 +228,7 @@ function Stack() {
   useStatusBar(route.name === 'home');
   useWidgetLinks();
   useResumeKrux();
+  useTabSwipe(nav.stack.length === 1);
   return (
     <>
       <Current route={route} />

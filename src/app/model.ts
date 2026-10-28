@@ -35,7 +35,7 @@ import {
   type WalletUtxo,
 } from '../core/sync';
 import { buildTransaction, BuildError, type Coin, type DraftTransaction, type Payment } from '../core/txbuilder';
-import type { Unit } from '../core/units';
+import { formatAmount, unitLabel, type Unit } from '../core/units';
 import { fromHex, toHex } from '../core/bytes';
 import { candlesUrl, parseCandles, parseTicker, tickerUrl, CHART_RANGES, PriceError, PRICE_MAX_AGE_MS, type Candle, type CandleInterval, type Ticker } from '../core/price';
 import {
@@ -60,6 +60,7 @@ import { serverInfo } from './server-api';
 import { isServer } from './target';
 import { readJson, removeJson, writeJson } from './storage';
 import { LightningController } from './lightning';
+import { DEFAULT_NOTIFY, Notifier, type NotifySettings } from './notify';
 import {
   buildWidgetSnapshot,
   CHART_FAMILIES,
@@ -93,7 +94,10 @@ export interface Settings {
   /** Whether the app asks Neoxa Exchange for the XBT price at all, and whether it asks through Tor. */
   prices: boolean;
   pricesOverTor: boolean;
-  /** What the balance on the Wallet tab shows: coins, or their worth in US dollars. Tapping it switches. */
+  /**
+   * Coins, or their worth in US dollars at today's price: the balances on the Wallet and Lightning tabs and the
+   * amounts in their lists. Dollars by default; tapping a balance switches. Coins whenever prices are off.
+   */
   balanceView: 'coin' | 'usd';
   /** A code from an authenticator app is needed to send and to show seed words. The key is in the Keychain. */
   twoFactor: boolean;
@@ -107,6 +111,8 @@ export interface Settings {
   appPin: boolean;
   /** unix ms of the last backup file saved, or null */
   lastBackupAt: number | null;
+  /** Notifications from background checks (notify.ts). Not in backups: iOS asks on each phone */
+  notify: NotifySettings;
 }
 
 /** What restoring a backup did, for the screen to say. */
@@ -298,7 +304,7 @@ const TWO_FACTOR_ATTEMPTS_FILE = 'two-factor-attempts.json';
 /** What the widgets were last handed, so a restart neither blanks the price nor rewrites them for nothing */
 const WIDGETS_FILE = 'widgets.json';
 /** The Market chart's one-day range, which is also what the price widget draws */
-const DAY_CHART = CHART_RANGES[0];
+const DAY_CHART = CHART_RANGES.find((r) => r.id === '1d')!;
 /** While the app is open and past Face ID, how often the price is fetched again for a price widget */
 const WIDGET_PRICE_EVERY_MS = 5 * 60_000;
 const RPC_PASSWORD_KEY = 'rpc-password';
@@ -322,13 +328,14 @@ const DEFAULT_SETTINGS: Settings = {
   skinTier: 0,
   prices: true,
   pricesOverTor: true,
-  balanceView: 'coin',
+  balanceView: 'usd',
   twoFactor: false,
   twoFactorOffered: false,
   widgetBalance: true,
   widgetWallet: null,
   appPin: false,
   lastBackupAt: null,
+  notify: DEFAULT_NOTIFY,
 };
 
 export interface RescanChoice {
@@ -430,7 +437,15 @@ export class AppModel {
     confirmPresence: (reason) => this.confirmPresence(reason),
     checkSecondFactor: (code) => this.checkSecondFactor(code),
     changed: () => this.emit(),
+    sawActivity: (items) => (this.decoy ? Promise.resolve() : this.notifier.lightning(items)),
+    readableInBackground: () => this.settings.notify.on,
   });
+
+  /** Notifications for confirmations and Lightning payments, from background checks (notify.ts) */
+  private readonly notifier = new Notifier(
+    () => this.settings.notify,
+    (sats) => `${formatAmount(sats, this.settings.unit)} ${unitLabel(this.settings.unit)}`,
+  );
 
   private rpc: KnotsRpc | null = null;
   private listeners = new Set<() => void>();
@@ -460,7 +475,7 @@ export class AppModel {
 
   async init(): Promise<void> {
     const s = await readJson<Settings>(SETTINGS_FILE);
-    if (s) this.settings = { ...DEFAULT_SETTINGS, ...s };
+    if (s) this.settings = { ...DEFAULT_SETTINGS, ...s, notify: { ...DEFAULT_NOTIFY, ...s.notify } };
     if (isServer) {
       // On StartOS the node is set there, and the server reaches it with a password only the server holds. Signing
       // in to the server opens the app, so there's no app PIN or Face ID to ask for
@@ -538,6 +553,91 @@ export class AppModel {
       }
     }).catch(() => undefined);
     if (!this.locked && this.settings.node) void this.connect();
+    if (!isServer) {
+      try {
+        ShrikeNative.addListener('backgroundCheck', ({ id, deadline }) => void this.backgroundCheck(id, deadline)).catch(() => undefined);
+        // iOS forgets the request when the app is updated, so it's made again at each launch
+        if (this.settings.notify.on) ShrikeNative.backgroundChecks({ on: true }).catch(() => undefined);
+      } catch {
+        // A stand-in without background checks
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------- notifications
+
+  /**
+   * iOS woke the app for a short background check: reads the node and the Lightning node, which hands any
+   * confirmations and finished payments to the notifier. iOS gives about 30 seconds, so it stops at 25.
+   */
+  private async backgroundCheck(id: string, deadline?: number): Promise<void> {
+    let ok = false;
+    try {
+      // A duress session that went to the background: its checks see only the decoy wallet, so none are made
+      if (this.settings.notify.on && !this.decoy) {
+        let finished = false;
+        const work = (async () => {
+          await this.check();
+          // A payment waiting for an answer is left for when the app is open
+          if (this.lightning.paired && this.settings.notify.lightning) await this.lightning.refresh({ resume: false });
+          finished = true;
+        })();
+        // iOS gives about 30 seconds from when it woke the app, which includes starting the page
+        const left = deadline ? Math.max(1_000, deadline - Date.now()) : 25_000;
+        await Promise.race([work, new Promise((r) => setTimeout(r, left))]);
+        ok = finished && this.conn.phase === 'ready';
+      }
+    } finally {
+      await ShrikeNative.backgroundCheckDone({ id, ok }).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Turns notifications on or off. On asks iOS for permission, and stores the node's password and the Lightning key
+   * so they can be read while the iPhone is locked (after it has been unlocked once since it was turned on): a
+   * background check runs while it's locked. Off puts them back as they were, readable only while it's unlocked.
+   */
+  async setNotifications(on: boolean): Promise<void> {
+    // Not from a duress session: nothing it does is kept, and notifications would show the hidden wallets' payments
+    if (this.decoy) throw new Error('Notifications can’t be changed right now.');
+    if (on) {
+      const { granted } = await ShrikeNative.notifyPermission();
+      if (!granted) throw new Error('Notifications are off for Crossbill. Turn them on in the iPhone’s Settings, Notifications, Crossbill, then try again.');
+      try {
+        await this.restoreSecrets(true);
+      } catch (e) {
+        // Back as they were, so the secrets and the setting agree
+        await this.restoreSecrets(false).catch(() => undefined);
+        throw e;
+      }
+      await this.notifier.reset();
+      await this.updateSettings({ notify: { ...this.settings.notify, on: true } });
+      await ShrikeNative.backgroundChecks({ on: true }).catch(() => undefined);
+      // The first check after turning on only takes note of where things stand
+      if (!this.locked) {
+        void this.refresh();
+        if (this.lightning.paired) void this.lightning.refresh();
+      }
+      return;
+    }
+    // Off: the checks stop first, so none runs with secrets it can no longer read
+    await this.updateSettings({ notify: { ...this.settings.notify, on: false } });
+    await ShrikeNative.backgroundChecks({ on: false }).catch(() => undefined);
+    await this.restoreSecrets(false);
+  }
+
+  /** Stores the node's password and the Lightning key again, readable while locked or only while unlocked. */
+  private async restoreSecrets(background: boolean): Promise<void> {
+    if (isServer) return;
+    if (this.settings.node) {
+      const { value } = await ShrikeNative.vaultGet({ key: RPC_PASSWORD_KEY, prompt: 'Read the node password' });
+      if (value != null) await ShrikeNative.vaultSet({ key: RPC_PASSWORD_KEY, value, requireAuth: false, afterFirstUnlock: background });
+    }
+    await this.lightning.storeKeyAgain(background);
+  }
+
+  async updateNotify(patch: Partial<NotifySettings>): Promise<void> {
+    await this.updateSettings({ notify: { ...this.settings.notify, ...patch } });
   }
 
   /** Whether the app asks for Face ID (or the PIN) when it opens. Always, while the app PIN is on. */
@@ -717,7 +817,7 @@ export class AppModel {
 
   async saveNode(node: NodeSettings, password: string, network: NetworkName): Promise<void> {
     if (isServer) throw new Error('On StartOS the node is set in Crossbill’s settings there.');
-    await ShrikeNative.vaultSet({ key: RPC_PASSWORD_KEY, value: password, requireAuth: false });
+    await ShrikeNative.vaultSet({ key: RPC_PASSWORD_KEY, value: password, requireAuth: false, afterFirstUnlock: this.settings.notify.on });
     await this.updateSettings({ node, network });
     this.rpc = null;
     // A send waiting for the Krux was built on the old node and network
@@ -787,6 +887,12 @@ export class AppModel {
 
   refresh(): Promise<void> {
     if (!this.settings.node || this.locked) return Promise.resolve();
+    return this.check();
+  }
+
+  /** Reads the node now, even while the app is locked: refresh() and the background checks. */
+  private check(): Promise<void> {
+    if (!this.settings.node) return Promise.resolve();
     if (!this.rpc) return this.connect();
     return this.exclusive(async () => {
       try {
@@ -822,6 +928,11 @@ export class AppModel {
       this.fees = await estimateFees(rpc);
     } catch {
       this.fees = null;
+    }
+    // A duress session sees only the decoy wallet: the notifier waits for a session that sees them all
+    if (this.node && !this.decoy) {
+      const txs = this.networkWallets().flatMap((w) => w.snapshot?.txs ?? []);
+      await this.notifier.chain(this.settings.network, this.node.blocks, txs).catch(() => undefined);
     }
     this.conn = { phase: 'ready', lastSync: Date.now() };
     await this.checkSkinTier();

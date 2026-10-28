@@ -5,7 +5,9 @@ import { isNative, ShrikeNative } from '../app/native';
 import { DECISION_TEXT, decisionSummary, isOptedIn, type ReplayDecision } from '../core/replay';
 import { cleanCode, looksLikeRecoveryCode } from '../core/totp';
 import { formatAmount, unitLabel, type Unit } from '../core/units';
+import { formatUsdAmount } from '../core/price';
 import type { KnownAddress } from '../core/poison';
+import type { SettingsGroupId } from './Settings';
 
 // ------------------------------------------------------------------ app state
 
@@ -47,6 +49,42 @@ export function ScreenshotWarning() {
   );
 }
 
+// ------------------------------------------------------------------ dollars
+
+/**
+ * Amounts in coins or in US dollars, as the person chose by tapping a balance (Settings, Appearance, too). Dollars
+ * need the XBT price, so with prices off it's always coins. Every amount is at today's price, not the price on the
+ * day it moved. While dollars show, the price is kept under a minute old.
+ */
+export function useMoney() {
+  const app = useApp();
+  const usd = app.settings.balanceView === 'usd' && app.settings.prices;
+  const ticker = app.price.ticker;
+  useEffect(() => {
+    if (!usd) return;
+    const unwatch = app.watchPrice();
+    void app.loadPrice();
+    const t = setInterval(() => void app.loadPrice(), 60_000);
+    return () => {
+      unwatch();
+      clearInterval(t);
+    };
+  }, [usd, app]);
+  // While the price can't be had, lists show coins rather than a row of placeholders
+  const dollars = usd && (ticker != null || app.price.loading || !app.price.error);
+  return {
+    usd,
+    /** The amounts below are in dollars right now: usd, and the price can be had */
+    dollars,
+    ticker,
+    /** The amount as the list should show it */
+    text: (sats: number, opts: { sign?: boolean } = {}) => (dollars ? (ticker ? formatUsdAmount(sats, ticker.last, opts) : '$ ...') : formatAmount(sats, app.settings.unit, opts)),
+    toggle: () => {
+      if (app.settings.prices) void app.updateSettings({ balanceView: usd ? 'coin' : 'usd' });
+    },
+  };
+}
+
 // ------------------------------------------------------------------ navigation
 
 /** The screens on the tab bar (Lightning once paired). Everything else is pushed on top of one of them. */
@@ -62,6 +100,7 @@ export type Route =
   | { name: 'ln-settings' }
   | { name: 'contacts' }
   | { name: 'settings' }
+  | { name: 'settings-group'; group: SettingsGroupId }
   | { name: 'receive' }
   | { name: 'send'; address?: string; amount?: number; label?: string; coins?: string[] }
   | { name: 'tx'; txid: string }
@@ -229,11 +268,73 @@ const TABS: { name: TabName; label: string; icon: (p: { size?: number }) => Reac
  * The tab bar along the bottom of the main screens. It stays put while the screen above it scrolls, and
  * gives way to screens pushed on top, such as Send, which have a Back button instead.
  */
+/** The tabs on the bar, in order. Lightning shows once this iPhone is paired with a Lightning Fork node. */
+function visibleTabs(app: AppModel) {
+  return TABS.filter((t) => t.name !== 'lightning' || app.lightning.paired);
+}
+
+/** Where a swipe can't start: the chart reads the price under a finger, and fields and sheets keep their own */
+const NO_SWIPE = '.chart-box, input, textarea, select, .scrim, [data-no-swipe]';
+
+/**
+ * Swiping left or right on a tab moves to the next or previous tab, as tapping it on the bar would. Only a quick,
+ * mostly sideways swipe counts, so scrolling a list never changes tab. Nothing wraps around.
+ */
+export function useTabSwipe(enabled: boolean) {
+  const nav = useNav();
+  const app = useApp();
+  useEffect(() => {
+    if (!enabled) return;
+    let start: { x: number; y: number; at: number } | null = null;
+    const down = (e: TouchEvent) => {
+      const t = e.touches[0];
+      const target = e.target as Element | null;
+      start = e.touches.length === 1 && t && !target?.closest(NO_SWIPE) && !insideSideScroller(target) ? { x: t.clientX, y: t.clientY, at: Date.now() } : null;
+    };
+    const up = (e: TouchEvent) => {
+      const t = e.changedTouches[0];
+      const s = start;
+      start = null;
+      if (!s || !t) return;
+      const dx = t.clientX - s.x;
+      const dy = t.clientY - s.y;
+      if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2 || Date.now() - s.at > 700) return;
+      const tabs = visibleTabs(app);
+      const i = tabs.findIndex((x) => x.name === nav.stack[0].name);
+      const next = tabs[i + (dx < 0 ? 1 : -1)];
+      if (i < 0 || !next || nav.stack.length !== 1) return;
+      nav.reset({ name: next.name });
+      window.scrollTo({ top: 0 });
+    };
+    const cancel = () => {
+      start = null;
+    };
+    document.addEventListener('touchstart', down, { passive: true });
+    document.addEventListener('touchend', up, { passive: true });
+    document.addEventListener('touchcancel', cancel, { passive: true });
+    return () => {
+      document.removeEventListener('touchstart', down);
+      document.removeEventListener('touchend', up);
+      document.removeEventListener('touchcancel', cancel);
+    };
+  }, [enabled, nav, app]);
+}
+
+/** The touch started inside something that scrolls sideways itself */
+function insideSideScroller(el: Element | null): boolean {
+  for (let e = el; e && e !== document.body; e = e.parentElement) {
+    if (e.scrollWidth > e.clientWidth + 1) {
+      const o = getComputedStyle(e).overflowX;
+      if (o === 'auto' || o === 'scroll') return true;
+    }
+  }
+  return false;
+}
+
 export function TabBar() {
   const nav = useNav();
   const app = useApp();
-  // Lightning shows once this iPhone is paired with a Lightning Fork node
-  const tabs = TABS.filter((t) => t.name !== 'lightning' || app.lightning.paired);
+  const tabs = visibleTabs(app);
   const current = nav.stack[0].name;
   useEffect(() => {
     document.body.classList.add('has-tabbar');

@@ -157,4 +157,19 @@ export class ShrikeNativeServer extends WebPlugin implements ShrikeNativePlugin 
   async widgetsInstalled(): Promise<{ ok: boolean; reason?: WidgetTrouble; widgets: { kind: string; family: string }[] }> {
     return { ok: false, reason: 'web', widgets: [] };
   }
+
+  // StartOS has no notifications: the server page is open only while someone looks at it
+  async notifyPermission(): Promise<{ granted: boolean }> {
+    return { granted: false };
+  }
+
+  async notifyStatus(): Promise<{ status: 'granted' | 'denied' | 'notDetermined' }> {
+    return { status: 'denied' };
+  }
+
+  async notify(): Promise<void> {}
+
+  async backgroundChecks(): Promise<void> {}
+
+  async backgroundCheckDone(): Promise<void> {}
 }

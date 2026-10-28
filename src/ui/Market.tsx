@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CHART_RANGES, formatCompact, formatPercent, formatPrice, formatUsd, type Candle } from '../core/price';
 import { friendlyError } from '../app/model';
 import { LINK_GROUPS } from '../app/links';
-import { Chevron, Screen, openLink, useApp } from './kit';
+import { Chevron, openLink, useApp } from './kit';
 
 /** Price history per range, kept for five minutes so flipping between ranges doesn't ask again. */
 const chartCache = new Map<string, { at: number; candles: Candle[] }>();
@@ -41,17 +41,22 @@ export function Market() {
   const stale = p.problem != null && !p.loading;
 
   return (
-    <Screen title="Market" back={false}>
-      {!app.settings.prices ? (
-        <div className="price-card">
-          <p style={{ marginTop: 0 }}>Prices are off, so this app doesn’t contact Neoxa Exchange.</p>
-          <button className="btn secondary" onClick={() => void app.updateSettings({ prices: true })}>
-            Turn prices on
-          </button>
+    <div className="screen">
+      {/* The price and its chart in the skin's band, as the balance is on the Wallet tab */}
+      <section className="band market-band">
+        <div className="top">
+          <span className="band-title">Market</span>
         </div>
-      ) : (
-        <>
+        {!app.settings.prices ? (
           <div className="price-card">
+            <p style={{ marginTop: 0 }}>Prices are off, so this app doesn’t contact Neoxa Exchange.</p>
+            <button className="btn secondary" onClick={() => void app.updateSettings({ prices: true })}>
+              Turn prices on
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="price-card">
             <div className="pair">
               XBT <span>/ USDC</span>
             </div>
@@ -79,11 +84,15 @@ export function Market() {
                 : `Neoxa Exchange${p.viaTor ? ', through Tor' : app.settings.pricesOverTor && p.at ? ', without Tor this time' : app.settings.pricesOverTor ? ', through Tor' : ''}${p.at ? `, updated ${ago(p.at)}` : ''}`}
               {p.loading && !p.showSteps ? <span className="spinner small" aria-label="Updating" /> : null}
             </div>
-            <PriceConnection />
-          </div>
-
-          <PriceChart />
-
+            </div>
+            <PriceChart />
+          </>
+        )}
+      </section>
+      <main className="body">
+        {app.settings.prices && <PriceConnection />}
+        {app.settings.prices && (
+          <>
           {t && (
             <dl className="facts">
               <div>
@@ -112,11 +121,11 @@ export function Market() {
               </div>
             </dl>
           )}
-          <p className="note">One exchange’s last trade, shown for reference. Prices on a young market can move fast and differ between exchanges.</p>
-        </>
-      )}
+            <p className="note">One exchange’s last trade, shown for reference. Prices on a young market can move fast and differ between exchanges.</p>
+          </>
+        )}
 
-      <div className="section-title">About XBT</div>
+        <Fold title="About XBT">
       <div className="prose">
         <p>
           XBT here is bitcoin on the BLAKE2b chain. At block 961,640, on 30 August 2026, nodes running Bitcoin Knots changed Bitcoin’s proof of work from SHA256d to BLAKE2b, so the miners still on
@@ -129,9 +138,10 @@ export function Market() {
         </p>
       </div>
 
+        </Fold>
+
       {LINK_GROUPS.map((g) => (
-        <div key={g.title}>
-          <div className="section-title">{g.title}</div>
+        <Fold key={g.title} title={g.title}>
           <ul className="list links">
             {g.links.map((l) => (
               <li key={l.url}>
@@ -147,10 +157,25 @@ export function Market() {
               </li>
             ))}
           </ul>
-        </div>
+        </Fold>
       ))}
-      <p className="note">Links open in Safari, outside this app’s Tor connection.</p>
-    </Screen>
+        <p className="note">Links open in Safari, outside this app’s Tor connection.</p>
+      </main>
+    </div>
+  );
+}
+
+/** A heading that opens and closes what's under it. Closed until tapped, so the page stays short. */
+function Fold({ title, children }: { title: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={`fold${open ? ' open' : ''}`}>
+      <button className="fold-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span>{title}</span>
+        <Chevron dir={open ? 'down' : 'right'} />
+      </button>
+      {open && <div className="fold-body">{children}</div>}
+    </div>
   );
 }
 
@@ -257,7 +282,7 @@ function StepMark({ status }: { status: 'pending' | 'active' | 'done' | 'failed'
 /** Closing prices over a chosen range, drawn as one line. Touch and drag to read a point. */
 function PriceChart() {
   const app = useApp();
-  const [range, setRange] = useState(CHART_RANGES[1].id);
+  const [range, setRange] = useState('1w');
   const r = CHART_RANGES.find((x) => x.id === range)!;
   const [candles, setCandles] = useState<Candle[] | null>(() => chartCache.get(range)?.candles ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -272,7 +297,8 @@ function PriceChart() {
     let alive = true;
     const cached = chartCache.get(range);
     setHover(null);
-    if (cached && Date.now() - cached.at < 300_000) {
+    // The hour's chart is a minute at a time, so it's asked again after a minute; the others after five
+    if (cached && Date.now() - cached.at < (r.interval === '1m' ? 60_000 : 300_000)) {
       setCandles(cached.candles);
       setError(null);
       return;
@@ -334,7 +360,7 @@ function PriceChart() {
             {formatPercent(change)}{' '}
             {candles.length < r.limit * 0.9
               ? `since ${new Date(candles[0].time).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, as far back as this market goes`
-              : `over the last ${r.label === '1D' ? 'day' : r.label === '1W' ? 'week' : r.label === '1M' ? 'month' : 'year'}`}
+              : `over the last ${r.label === '1H' ? 'hour' : r.label === '1D' ? 'day' : r.label === '1W' ? 'week' : r.label === '1M' ? 'month' : 'year'}`}
           </span>
         ) : (
           <span className="note">{error ? ' ' : 'Loading price history'}</span>

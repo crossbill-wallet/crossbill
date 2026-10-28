@@ -102,9 +102,11 @@ export interface ShrikeNativePlugin {
   /**
    * Stores a secret in the iOS Keychain. With requireAuth the item is bound to the device passcode and
    * reading it asks for Face ID, Touch ID or the passcode every time (kSecAccessControlUserPresence). With
-   * whenPasscodeSet it's read without asking, but exists only while the iPhone has a passcode.
+   * whenPasscodeSet it's read without asking, but exists only while the iPhone has a passcode. Both of those, and the
+   * default, can be read only while the iPhone is unlocked. With afterFirstUnlock (not with requireAuth) it can also
+   * be read while it's locked, once it has been unlocked since it was turned on: for background checks.
    */
-  vaultSet(opts: { key: string; value: string; requireAuth: boolean; whenPasscodeSet?: boolean }): Promise<void>;
+  vaultSet(opts: { key: string; value: string; requireAuth: boolean; whenPasscodeSet?: boolean; afterFirstUnlock?: boolean }): Promise<void>;
   /**
    * Reads a Keychain item. With biometricsOnly (the app PIN is on), Face ID alone is tried first, with "Use PIN"
    * instead of the iPhone passcode, and a failure rejects with code "needs-pin" so the page can ask for the PIN.
@@ -144,6 +146,18 @@ export interface ShrikeNativePlugin {
   widgetsUpdate(opts: { snapshot: string | null }): Promise<{ ok: boolean; reason?: WidgetTrouble }>;
   /** The Crossbill widgets on the Home Screen and Lock Screen right now, and whether the App Group is set up. */
   widgetsInstalled(): Promise<{ ok: boolean; reason?: WidgetTrouble; widgets: { kind: string; family: string }[] }>;
+  /** Asks to show notifications, the first time; after that iOS answers with what was chosen in Settings. */
+  notifyPermission(): Promise<{ granted: boolean }>;
+  /** Whether notifications are allowed, without asking. */
+  notifyStatus(): Promise<{ status: 'granted' | 'denied' | 'notDetermined' }>;
+  /** Shows a notification now. The same id replaces the one before. */
+  notify(opts: { id: string; title: string; body: string }): Promise<void>;
+  /** Asks iOS to wake the app now and then for a background check (at most about every 15 minutes), or stops it. */
+  backgroundChecks(opts: { on: boolean }): Promise<void>;
+  /** A background check finished: iOS can put the app back to sleep. */
+  backgroundCheckDone(opts: { id: string; ok: boolean }): Promise<void>;
+  /** iOS woke the app for a background check. Call backgroundCheckDone with its id by deadline (unix ms). */
+  addListener(eventName: 'backgroundCheck', listener: (e: { id: string; deadline?: number }) => void): Promise<PluginListenerHandle>;
   /** Fires when the person takes a screenshot. iOS can't block one, so screens showing seed words warn instead. */
   addListener(eventName: 'screenshot', listener: () => void): Promise<PluginListenerHandle>;
   /** Each new code a parts scanner reads. */

@@ -277,6 +277,33 @@ export class ShrikeNativeWeb extends WebPlugin implements ShrikeNativePlugin {
       }),
     };
   }
+
+  // In a browser, notifications go to the console, and a background check can be started from it:
+  // window.crossbillBackgroundCheck()
+  private notifyAllowed: 'granted' | 'denied' | 'notDetermined' = 'notDetermined';
+
+  async notifyPermission(): Promise<{ granted: boolean }> {
+    if (this.notifyAllowed === 'notDetermined') this.notifyAllowed = 'granted';
+    return { granted: this.notifyAllowed === 'granted' };
+  }
+
+  async notifyStatus(): Promise<{ status: 'granted' | 'denied' | 'notDetermined' }> {
+    return { status: this.notifyAllowed };
+  }
+
+  async notify(opts: { id: string; title: string; body: string }): Promise<void> {
+    console.info(`[notification] ${opts.title}: ${opts.body} (${opts.id})`);
+  }
+
+  async backgroundChecks(opts: { on: boolean }): Promise<void> {
+    const w = window as unknown as { crossbillBackgroundCheck?: () => void };
+    if (opts.on) w.crossbillBackgroundCheck = () => this.notifyListeners('backgroundCheck', { id: `dev-${Date.now()}` });
+    else delete w.crossbillBackgroundCheck;
+  }
+
+  async backgroundCheckDone(opts: { id: string; ok: boolean }): Promise<void> {
+    console.info(`[background check] ${opts.id} done, ${opts.ok ? 'ok' : 'failed'}`);
+  }
 }
 
 function devFaceId(): string | null {

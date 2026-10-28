@@ -6,6 +6,7 @@ import { DEFAULT_EXPLORER, normalizeExplorer } from '../core/explorer';
 import { DECISION_TEXT, decisionSummary } from '../core/replay';
 import { friendlyError, signerOf } from '../app/model';
 import { KruxWalletSection } from './Krux';
+import { NotificationSettings, notificationsSummary } from './Notifications';
 import { isNative } from '../app/native';
 import { isServer } from '../app/target';
 import { FONTS, SKINS } from '../app/look';
@@ -31,7 +32,46 @@ import {
   useScreenshotAlert,
 } from './kit';
 
+export type SettingsGroupId = 'wallets' | 'security' | 'node' | 'look' | 'notifications' | 'spending' | 'about';
+
+/** The Settings tab: a short list of groups, each opening to its settings. */
 export function Settings() {
+  const app = useApp();
+  const nav = useNav();
+  const node = app.settings.node;
+  const skin = SKINS.find((x) => x.id === app.skin)!;
+  const wallets = app.networkWallets().length;
+  const open = (group: SettingsGroupId) => nav.push({ name: 'settings-group', group });
+  return (
+    <Screen title="Settings" back={false}>
+      <Row title="Wallets" meta={`${wallets} wallet${wallets === 1 ? '' : 's'} on this ${isServer ? 'server' : 'iPhone'}`} onClick={() => open('wallets')} />
+      <Row
+        title="Security"
+        meta={[app.settings.twoFactor ? 'Two-factor on' : 'Two-factor off', !isServer && (app.pinOn ? 'app PIN on' : 'app PIN off'), 'backup'].filter(Boolean).join(', ')}
+        onClick={() => open('security')}
+      />
+      <Row title="Node and Lightning" meta={`${node ? (node.useTor ? 'Your node, through Tor' : 'Your node') : 'No node set up'}${app.lightning.paired ? ', Lightning paired' : ''}, block explorer, replay protection`} onClick={() => open('node')} />
+      <Row title={isServer ? 'Appearance' : 'Appearance and widgets'} meta={`${skin.name} skin, amounts in ${app.settings.balanceView === 'usd' && app.settings.prices ? 'US dollars' : app.settings.unit}${isServer ? '' : ', widgets'}`} onClick={() => open('look')} />
+      {!isServer && !app.inDecoy && <Row title="Notifications" meta={notificationsSummary(app)} onClick={() => open('notifications')} />}
+      <Row title="Spending" meta="Spending whole addresses together" onClick={() => open('spending')} />
+      <Row title="Hardware wallet" meta="Paperclip’s K210 Krux: set up, signing, help and links" onClick={() => nav.push({ name: 'hardware' })} />
+      <Row title="About and support" meta={`Crossbill ${__APP_VERSION__}${DONATION_ADDRESS ? ', donate' : ''}, code on GitHub`} onClick={() => open('about')} />
+    </Screen>
+  );
+}
+
+const GROUP_TITLES: Record<SettingsGroupId, string> = {
+  wallets: 'Wallets',
+  security: 'Security',
+  node: 'Node and Lightning',
+  look: isServer ? 'Appearance' : 'Appearance and widgets',
+  notifications: 'Notifications',
+  spending: 'Spending',
+  about: 'About and support',
+};
+
+/** One group of settings, opened from the Settings tab. */
+export function SettingsGroup({ group }: { group: SettingsGroupId }) {
   const app = useApp();
   const nav = useNav();
   const node = app.settings.node;
@@ -40,10 +80,9 @@ export function Settings() {
   const font = FONTS.find((x) => x.id === app.settings.font)!;
   const explorer = app.settings.explorer;
   return (
-    <Screen title="Settings" back={false}>
-      <div className="section-title" style={{ marginTop: 4 }}>
-        Wallets
-      </div>
+    <Screen title={GROUP_TITLES[group]}>
+      {group === 'wallets' && (
+        <>
       {app.networkWallets().map((w) => (
         <button key={w.config.id} className="row setting" onClick={() => nav.push({ name: 'wallet-info', id: w.config.id })}>
           <div className="main">
@@ -69,9 +108,10 @@ export function Settings() {
       <button className="btn quiet" onClick={() => nav.push({ name: 'add-wallet' })}>
         Add a wallet
       </button>
-      <Row title="Hardware wallet" meta="Paperclip’s K210 Krux: set up, signing, help and links" onClick={() => nav.push({ name: 'hardware' })} />
-
-      <div className="section-title">Security</div>
+        </>
+      )}
+      {group === 'security' && (
+        <>
       <Row title="Two-factor" meta={app.settings.twoFactor ? 'A code is needed to send and to show seed words' : 'Off. Sends need Face ID only'} end={app.settings.twoFactor ? 'On' : 'Off'} onClick={() => nav.push({ name: 'two-factor' })} />
       {/* On StartOS, signing in to the server opens Crossbill: there's no Face ID or app PIN */}
       {!isServer && (
@@ -98,7 +138,35 @@ export function Settings() {
         onClick={() => nav.push({ name: 'backup' })}
       />
 
-      <div className="section-title">Look</div>
+        </>
+      )}
+      {group === 'node' && (
+        <>
+      <Row
+        title={<span className="mono" style={{ fontWeight: 400, fontSize: 'var(--t-sm)' }}>{node ? `${node.host.length > 26 ? node.host.slice(0, 14) + '…' + node.host.slice(-10) : node.host}:${node.port}` : 'Not set up'}</span>}
+        meta={
+          <>
+            {app.settings.network === 'mainnet' ? 'Mainnet' : app.settings.network === 'testnet4' ? 'Testnet4' : 'Regtest'}
+            {node?.useTor ? ', through Tor' : ''}
+            {app.node ? `, ${app.node.subversion.replace(/^\/|\/$/g, '')}` : ''}
+            {isServer ? '. Set on StartOS' : ''}
+          </>
+        }
+        onClick={() => (isServer ? undefined : nav.push({ name: 'node' }))}
+      />
+      <Row
+        title="Lightning"
+        meta={app.lightning.paired ? `Paired with ${app.lightning.state.bootstrap?.node?.alias || app.lightning.state.link?.alias || 'your Lightning Fork node'}` : 'Pair with your Lightning Fork node to send and receive on Lightning'}
+        end={app.lightning.paired ? 'On' : 'Off'}
+        onClick={() => nav.push({ name: app.lightning.paired ? 'ln-settings' : 'ln-pair' })}
+      />
+      <Row title="Block explorer" meta={explorer == null ? 'None' : explorer === DEFAULT_EXPLORER ? 'mempool.guide' : explorer.replace(/^https?:\/\//, '')} onClick={() => nav.push({ name: 'explorer' })} />
+      <Row title="Replay protection" meta={decisionSummary(decision)} onClick={() => nav.push({ name: 'replay' })} />
+
+        </>
+      )}
+      {group === 'look' && (
+        <>
       <Row
         title="Appearance"
         meta={`${app.settings.appearance === 'system' ? 'Matches iPhone' : app.settings.appearance === 'dark' ? 'Dark' : 'Light'}, ${skin.name} skin, ${font.name}`}
@@ -121,6 +189,13 @@ export function Settings() {
         checked={app.settings.prices}
         onChange={(v) => void app.updateSettings({ prices: v, ...(v ? {} : { balanceView: 'coin' as const }) })}
       />
+      <Toggle
+        label="Amounts in US dollars"
+        detail={app.settings.prices ? 'On the Wallet and Lightning tabs, balances and lists, at today’s XBT price. Tapping a balance switches too.' : 'Needs the XBT price, below.'}
+        checked={app.settings.balanceView === 'usd' && app.settings.prices}
+        disabled={!app.settings.prices}
+        onChange={(v) => void app.updateSettings({ balanceView: v ? 'usd' : 'coin' })}
+      />
       {app.settings.prices && (!isServer || app.torAvailable) && (
         <Toggle
           label="Get the price through Tor"
@@ -138,29 +213,11 @@ export function Settings() {
         />
       )}
 
-      <div className="section-title">Node</div>
-      <Row
-        title={<span className="mono" style={{ fontWeight: 400, fontSize: 'var(--t-sm)' }}>{node ? `${node.host.length > 26 ? node.host.slice(0, 14) + '…' + node.host.slice(-10) : node.host}:${node.port}` : 'Not set up'}</span>}
-        meta={
-          <>
-            {app.settings.network === 'mainnet' ? 'Mainnet' : app.settings.network === 'testnet4' ? 'Testnet4' : 'Regtest'}
-            {node?.useTor ? ', through Tor' : ''}
-            {app.node ? `, ${app.node.subversion.replace(/^\/|\/$/g, '')}` : ''}
-            {isServer ? '. Set on StartOS' : ''}
-          </>
-        }
-        onClick={() => (isServer ? undefined : nav.push({ name: 'node' }))}
-      />
-      <Row
-        title="Lightning"
-        meta={app.lightning.paired ? `Paired with ${app.lightning.state.bootstrap?.node?.alias || app.lightning.state.link?.alias || 'your Lightning Fork node'}` : 'Pair with your Lightning Fork node to send and receive on Lightning'}
-        end={app.lightning.paired ? 'On' : 'Off'}
-        onClick={() => nav.push({ name: app.lightning.paired ? 'ln-settings' : 'ln-pair' })}
-      />
-      <Row title="Block explorer" meta={explorer == null ? 'None' : explorer === DEFAULT_EXPLORER ? 'mempool.guide' : explorer.replace(/^https?:\/\//, '')} onClick={() => nav.push({ name: 'explorer' })} />
-      <Row title="Replay protection" meta={decisionSummary(decision)} onClick={() => nav.push({ name: 'replay' })} />
-
-      <div className="section-title">Spending</div>
+        </>
+      )}
+      {group === 'notifications' && !app.inDecoy && <NotificationSettings />}
+      {group === 'spending' && (
+        <>
       <Toggle
         label="Spend whole addresses together"
         detail="When an address holds several coins, they are spent at once so the address is never left partly spent."
@@ -168,19 +225,19 @@ export function Settings() {
         onChange={(v) => void app.updateSettings({ groupByAddress: v })}
       />
 
-      {DONATION_ADDRESS && (
-        <>
-          <div className="section-title">Support this app</div>
-          <Row title="Donate XBT" meta="Help keep Crossbill going" onClick={() => nav.push({ name: 'donate' })} />
         </>
       )}
-
-      <p className="note" style={{ marginTop: 28 }}>
+      {group === 'about' && (
+        <>
+          {DONATION_ADDRESS && <Row title="Donate XBT" meta="Help keep Crossbill going" onClick={() => nav.push({ name: 'donate' })} />}
+      <p className="note" style={{ marginTop: 18 }}>
         Crossbill {__APP_VERSION__}. An independent wallet for Bitcoin (XBT) on the BLAKE2b chain, with parts ported from Shrike and Sparrow. Not affiliated with either, or with Bitcoin Knots, Paperclip or Connor’s Lab. Not audited. Apache 2.0.
       </p>
       <button className="btn quiet" onClick={() => void openLink(APP_REPO)}>
         Code and releases on GitHub
       </button>
+        </>
+      )}
     </Screen>
   );
 }
