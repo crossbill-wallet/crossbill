@@ -236,6 +236,21 @@ select {
 }
 
 /* One fixed-height row: wallet name (shortened to fit, never wrapping) and block height */
+/* Block height on the left and the wallet picker on the right, on the Wallet tab */
+.band .top.flip {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.band .top.flip .wallet-name {
+  justify-content: flex-end;
+  justify-self: end;
+  max-width: 100%;
+}
+
+.band .top.flip .blockh {
+  text-align: left;
+}
+
 .band .top {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -486,7 +501,9 @@ select {
 /* ------------------------------------------------------------ tabs */
 
 .tabs {
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 4px;
   padding: 10px var(--pad) 0;
   background: var(--ash);
@@ -497,6 +514,7 @@ select {
 }
 
 .tabs button {
+  text-align: center;
   background: none;
   border: 0;
   padding: 10px 12px 12px;
@@ -567,6 +585,16 @@ select {
 
 .row .amt.out {
   color: var(--slate);
+}
+
+/* Money in: bold, so it stands apart from money out */
+.row .amt.in {
+  font-weight: 700;
+}
+
+.load-more {
+  padding: 18px var(--pad) 8px;
+  text-align: center;
 }
 
 .empty {
@@ -1995,34 +2023,35 @@ svg.step-mark.failed path {
   margin-top: 10px;
 }
 
-/* On the lock screen: the bird moves up and the pad sits on the band */
-.pinpad.band .pin-detail {
+/* On the lock screen: the bird moves up and the pad sits straight on the band. Its class isn't .band, which
+   would give it a band of its own: a box behind the pad */
+.pinpad.on-band .pin-detail {
   color: var(--on-mask-dim);
 }
 
-.pinpad.band .pin-dots span {
+.pinpad.on-band .pin-dots span {
   border-color: var(--on-mask);
 }
 
-.pinpad.band .pin-dots span.on {
+.pinpad.on-band .pin-dots span.on {
   background: var(--on-mask);
 }
 
-.pinpad.band .pin-error {
+.pinpad.on-band .pin-error {
   color: #ff9a85;
 }
 
-.pinpad.band .pin-keys button {
+.pinpad.on-band .pin-keys button {
   background: rgba(255, 255, 255, 0.12);
   color: var(--on-mask);
 }
 
-.pinpad.band .pin-keys button:active:not(:disabled) {
+.pinpad.on-band .pin-keys button:active:not(:disabled) {
   background: rgba(255, 255, 255, 0.24);
 }
 
-.pinpad.band .pin-keys .pin-extra,
-.pinpad.band .pin-keys .pin-del {
+.pinpad.on-band .pin-keys .pin-extra,
+.pinpad.on-band .pin-keys .pin-del {
   background: none;
 }
 
@@ -2147,4 +2176,86 @@ svg.step-mark.failed path {
   text-align: left;
   color: var(--slate);
   font-size: var(--t-sm);
+}
+
+/* ------------------------------------------------------------ market band */
+
+/* The Market tab's price and chart sit in the skin's band, as the Wallet tab's balance does. Inside it the
+   page's colours turn to the band's: light text and a light line on the skin's dark gradient */
+.market-band {
+  --ink: var(--on-mask);
+  --slate: var(--on-mask-dim);
+  --rule: #ffffff2b;
+  --paper: #ffffff26;
+  --field: #ffffff12;
+  --chart-line: var(--on-mask);
+  --chart-fill: #ffffff1c;
+  padding-bottom: 6px;
+}
+
+.market-band .band-title {
+  align-self: center;
+  font-size: var(--t-md);
+  font-weight: 700;
+}
+
+.market-band .price-card {
+  padding: 2px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.market-band .chart {
+  margin-bottom: 4px;
+}
+
+.market-band .btn.secondary {
+  background: #ffffff14;
+  border-color: #ffffff3d;
+  color: var(--on-mask);
+}
+
+/* ------------------------------------------------------------ folding sections */
+
+.fold {
+  border-bottom: 1px solid var(--rule);
+}
+
+.fold:first-of-type {
+  margin-top: 18px;
+  border-top: 1px solid var(--rule);
+}
+
+.fold-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 52px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-size: var(--t-md);
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fold-head svg {
+  color: var(--slate);
+}
+
+.fold-body {
+  padding-bottom: 12px;
+}
+
+/* ------------------------------------------------------------ Lightning: the swap link */
+
+.row.swap-link {
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
 }

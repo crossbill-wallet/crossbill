@@ -93,7 +93,7 @@ Right after the first wallet, the app offers two-factor: a 6-digit code from an 
 
 ### App PIN and duress PIN (optional)
 
-In Settings, App PIN, choose six digits that aren't your iPhone passcode. From then on, when Face ID doesn't work, Crossbill asks for this PIN instead of the passcode, to open the app and before signing. If a face is ever added to Face ID, Crossbill asks for the PIN until you confirm the change was yours in Settings, App PIN.
+In Settings, Security, App PIN, choose six digits that aren't your iPhone passcode. From then on, when Face ID doesn't work, Crossbill asks for this PIN instead of the passcode, to open the app and before signing. If a face is ever added to Face ID, Crossbill asks for the PIN until you confirm the change was yours in Settings, Security, App PIN.
 
 A duress PIN is a second PIN for when someone forces you to open Crossbill: cancel Face ID and type it, and Crossbill opens showing only one wallet you choose. Use a wallet with a small amount in it, and keep the Crossbill skin, since skins hint at what you hold.
 
@@ -101,7 +101,7 @@ If you forget the app PIN, remove Crossbill from the iPhone and add your wallets
 
 ### Backup (recommended)
 
-In Settings, Backup, choose a password and save the file somewhere other than this iPhone, such as iCloud Drive or a computer. Write the password with your seed words: it can't be reset. On a new iPhone, tap **Restore from a backup** on the welcome screen, then enter your node's password and each wallet's seed words, or scan its Krux. The file never holds seed words or passwords.
+In Settings, Security, Backup, choose a password and save the file somewhere other than this iPhone, such as iCloud Drive or a computer. Write the password with your seed words: it can't be reset. On a new iPhone, tap **Restore from a backup** on the welcome screen, then enter your node's password and each wallet's seed words, or scan its Krux. The file never holds seed words or passwords.
 
 ### Hardware wallet (optional)
 
@@ -121,14 +121,20 @@ If you run [Lightning Fork](https://github.com/paulscode/lightning-fork) on Star
 
 1. **For paying away from home,** give the dashboard an onion address first. In StartOS, either accept the **Add Onion Service** task Lightning Fork shows, or open Lightning Fork's **Dashboard** interface and add a Tor address there. Leave **SSL off**: Tor already encrypts the connection.
 2. **On your computer,** open the Lightning Fork dashboard. In its menu, choose **Mobile app**, then **Pair a phone**, and enter the dashboard's password (Lightning Fork's **Dashboard Password** action shows it).
-3. **In Crossbill,** open Settings, **Lightning**, and tap **Scan**. Point the iPhone at the code; it works once, for five minutes. The first time, iOS asks whether Crossbill may find devices on your local network: allow it, so Crossbill can reach the node at home.
+3. **In Crossbill,** open Settings, Node and Lightning, **Lightning**, and tap **Scan**. Point the iPhone at the code; it works once, for five minutes. The first time, iOS asks whether Crossbill may find devices on your local network: allow it, so Crossbill can reach the node at home.
 4. The **Lightning** tab appears between Market and Contacts.
 
 At home, Crossbill talks to the node on your network, over HTTPS it checks against the certificate fingerprint in the code. Away from home, it uses the onion through its own Tor.
 
 **Paying a shop's Lightning invoice** usually means paying an invoice on the SHA256 chain. Your node pays it through a bridge, set up in the dashboard under **Paying SHA256 invoices**: either your own bridge, which pays with BTC from a Lightning node on the SHA256 chain on your server ([docs/own-bridge.md](docs/own-bridge.md) walks through it), or a service someone runs for you, which you pay in XBT. Crossbill says which before you pay.
 
-Changing the dashboard password, restoring Lightning Fork to another server, or a new root certificate on the server means pairing again. To remove the iPhone, use Settings, Lightning, **Unpair this iPhone**, or remove it under Mobile app in the dashboard.
+Changing the dashboard password, restoring Lightning Fork to another server, or a new root certificate on the server means pairing again. To remove the iPhone, use Settings, Node and Lightning, Lightning, **Unpair this iPhone**, or remove it under Mobile app in the dashboard.
+
+### Notifications (optional)
+
+In Settings, Notifications, turn on **Notifications** and allow them when iOS asks. Crossbill then tells you when a payment you sent or received gets its first confirmation and its sixth, and when a Lightning payment goes through. Each has its own switch. Amounts stay out of the notifications unless you turn on **Show amounts**, since anyone holding your iPhone can read the Lock Screen.
+
+iOS decides when Crossbill can check: at most about every 15 minutes, and less often when the battery is low or Crossbill is rarely opened. Swiping Crossbill away in the app switcher stops the checks until you open it again, so leave it in the switcher. **Background App Refresh** must be on for Crossbill, in the iPhone's Settings, General, Background App Refresh. To check while the iPhone is locked, Crossbill keeps the node's password and the Lightning key readable while it's locked; [SECURITY.md](SECURITY.md) says what that means.
 
 ### Widgets (optional)
 
@@ -137,7 +143,7 @@ Crossbill has two widgets, **XBT price** and **Balance**, for the Home Screen an
 - **Home Screen:** touch and hold an empty spot, tap **Edit**, then **Add Widget**. Search for Crossbill, pick one, swipe to the size you want and tap **Add Widget**.
 - **Lock Screen:** touch and hold the Lock Screen, tap **Customize**, then **Lock Screen**, tap the row of widgets under the clock and pick a Crossbill widget.
 
-Widgets can't run Tor, so they show what Crossbill last got through it, with the time, and change when you open Crossbill. Settings, Widgets chooses the wallet the Balance widget shows, or keeps the balance out of widgets. Anyone who sees your iPhone can read a widget, on the Lock Screen too. To have iOS hide the Lock Screen balance until Face ID recognizes you, turn off **Lock Screen Widgets** in the iPhone's Settings, Face ID & Passcode, under Allow Access When Locked.
+Widgets can't run Tor, so they show what Crossbill last got through it, with the time, and change when you open Crossbill. Settings, Appearance and widgets, Widgets chooses the wallet the Balance widget shows, or keeps the balance out of widgets. Anyone who sees your iPhone can read a widget, on the Lock Screen too. To have iOS hide the Lock Screen balance until Face ID recognizes you, turn off **Lock Screen Widgets** in the iPhone's Settings, Face ID & Passcode, under Allow Access When Locked.
 
 ## Step 7: Check it with a small amount
 
@@ -169,17 +175,17 @@ Widgets can't run Tor, so they show what Crossbill last got through it, with the
 | "Tor on this iPhone stopped responding" | Close Crossbill (swipe it away in the app switcher) and open it again. |
 | Signing errors that name **ShrikeWidgets**, or an App Group | In Signing & Capabilities, choose your team for the ShrikeWidgets target too, then click Try Again. Or close Xcode, run `npm run ios:widgets` in this folder, and open it again. |
 | "Failed to show Widget" or "Could not attach to pid" right after a successful build | Xcode ran the widgets on their own. At the top of the window, change **ShrikeWidgets** next to your iPhone's name to **App**, then press Run. The widgets install with the app. |
-| Crossbill asks for the app PIN and the Face ID button is gone | Face ID's faces changed since you set the PIN. If that was you, open Settings, App PIN, tap **It was me: use Face ID again** and enter the PIN. If it wasn't, someone with your passcode added a face: change your iPhone passcode and remove the face in the iPhone's Settings, Face ID & Passcode. |
+| Crossbill asks for the app PIN and the Face ID button is gone | Face ID's faces changed since you set the PIN. If that was you, open Settings, Security, App PIN, tap **It was me: use Face ID again** and enter the PIN. If it wasn't, someone with your passcode added a face: change your iPhone passcode and remove the face in the iPhone's Settings, Face ID & Passcode. |
 | "That password doesn't open this backup" | Check the password, capitals included. If the file was edited or damaged, use another copy. |
 | Review says an address "isn't" your contact or an address you paid | It looks like one you know but isn't the same: a common scam. Get the address again from its source and compare every character. |
-| A widget says "Open Crossbill to show ..." | Open Crossbill once. If Settings, Widgets says the App Group isn't set up, run `npm run ios:sync` and press Run again. |
+| A widget says "Open Crossbill to show ..." | Open Crossbill once. If Settings, Appearance and widgets, Widgets says the App Group isn't set up, run `npm run ios:sync` and press Run again. |
 | A widget shows an old price | Widgets can't fetch the price themselves. Open Crossbill; with a price widget on screen it fetches the price as it opens. |
 | The Krux won't read Crossbill's codes | On the signing screen, set Code detail to **Low**. Turn the iPhone's brightness up and hold the Krux a hand's width or two away. |
 | The Krux warns "Unverified input amounts!" | Expected when a send spends two or more Segwit coins. The unified signature covers every coin's amount, so choose Yes. |
 | The Krux says "Path mismatch", or won't sign | The Krux is set to another address type or account, or holds other seed words or another passphrase. On the Krux, check Wallet, Customize and the passphrase. |
 | "This Krux holds different seed words, or a different passphrase" | When linking, load exactly the wallet's seed words and passphrase on the Krux, then show its key again. |
 | The Krux refuses the transaction straight away | It isn't running Paperclip's firmware. Standard Krux refuses unified signatures. |
-| Lightning: "Can't reach your Lightning node" away from home | The dashboard needs an onion address with SSL off. See [Lightning](#lightning-optional). Settings, Lightning shows whether Crossbill knows one. |
+| Lightning: "Can't reach your Lightning node" away from home | The dashboard needs an onion address with SSL off. See [Lightning](#lightning-optional). Settings, Node and Lightning, Lightning shows whether Crossbill knows one. |
 | Lightning: "The node didn't accept that code" | Codes work once, for five minutes. Make a new one: Mobile app, Pair a phone. |
 | Lightning: "Your node no longer accepts this iPhone" | The dashboard password changed, or the iPhone was removed under Mobile app. Pair again. |
 | Lightning: "the node's certificate doesn't match" | Lightning Fork was restored to another server, or the server has a new root certificate. Pair again, and remove the old entry under Mobile app. |

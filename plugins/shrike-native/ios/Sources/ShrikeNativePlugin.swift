@@ -36,20 +36,44 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "widgetsUpdate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "widgetsInstalled", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "networkPath", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "notifyPermission", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "notifyStatus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "notify", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "backgroundChecks", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "backgroundCheckDone", returnType: CAPPluginReturnPromise),
     ]
 
     private static let vaultService = "shrike.mobile.vault"
     private let plainSession = URLSession(configuration: .ephemeral)
     private var cover: UIView?
+    /// Face ID or passcode prompts open right now. iOS makes the app inactive while one shows; that isn't the app
+    /// leaving the screen, so the privacy cover stays off and the lock screen stays visible behind the prompt
+    private var prompts = 0
+    private let promptsLock = NSLock()
+
+    private func promptOpened() {
+        promptsLock.lock(); prompts += 1; promptsLock.unlock()
+    }
+
+    private func promptClosed() {
+        promptsLock.lock(); prompts = max(0, prompts - 1); promptsLock.unlock()
+    }
+
+    private var prompting: Bool {
+        promptsLock.lock(); defer { promptsLock.unlock() }
+        return prompts > 0
+    }
     private var scanner: QrScanner?
 
     public override func load() {
         // Starts watching the network now, so the first Lightning request already knows Wi-Fi from cellular
         _ = NetworkWatch.shared
         NotificationCenter.default.addObserver(self, selector: #selector(appWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(appDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(appDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(appWillEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(userTookScreenshot), name: UIApplication.userDidTakeScreenshotNotification, object: nil)
+        backgroundChecksLoaded()
     }
 
     // iOS can't stop a screenshot, only report one after the fact. Screens showing seed words listen for this
@@ -207,7 +231,14 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
         let requireAuth = call.getBool("requireAuth") ?? false
         // Readable without a prompt, but only while the iPhone has a passcode: removing it deletes the item
         let whenPasscodeSet = call.getBool("whenPasscodeSet") ?? false
+        // Also readable while the iPhone is locked, once unlocked since it was turned on: for background checks
+        let afterFirstUnlock = call.getBool("afterFirstUnlock") ?? false
         DispatchQueue.global(qos: .userInitiated).async {
+            // Checked before the old item goes: an item that needs a passcode is never replaced by nothing
+            if whenPasscodeSet && !LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil) {
+                call.reject("Set a passcode on this iPhone first. Lightning needs one.", "no-passcode")
+                return
+            }
             let base = self.baseQuery(key)
             SecItemDelete(base as CFDictionary)
             var add = base
@@ -221,7 +252,9 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 }
                 add[kSecAttrAccessControl as String] = access
             } else {
-                add[kSecAttrAccessible as String] = whenPasscodeSet ? kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly : kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+                add[kSecAttrAccessible as String] = afterFirstUnlock
+                    ? kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+                    : whenPasscodeSet ? kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly : kSecAttrAccessibleWhenUnlockedThisDeviceOnly
             }
             let status = SecItemAdd(add as CFDictionary, nil)
             if status == errSecSuccess {
@@ -264,7 +297,9 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("Face ID on this iPhone changed since the app PIN was set", "needs-pin")
                 return
             }
+            self.promptOpened()
             context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: prompt) { ok, _ in
+                self.promptClosed()
                 guard ok else {
                     call.reject("Face ID didn’t confirm it’s you", "needs-pin")
                     return
@@ -282,7 +317,9 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         query[kSecUseAuthenticationContext as String] = context
         var item: CFTypeRef?
+        promptOpened()
         let status = SecItemCopyMatching(query as CFDictionary, &item)
+        promptClosed()
         switch status {
         case errSecSuccess:
             if let data = item as? Data, let value = String(data: data, encoding: .utf8) {
@@ -328,7 +365,9 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
                 call.resolve(["ok": false, "pin": true, "changed": true])
                 return
             }
+            promptOpened()
             context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { ok, _ in
+                self.promptClosed()
                 call.resolve(["ok": ok, "pin": !ok])
             }
             return
@@ -343,7 +382,9 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             return
         }
+        promptOpened()
         context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { ok, _ in
+            self.promptClosed()
             call.resolve(["ok": ok])
         }
     }
@@ -578,14 +619,23 @@ public class ShrikeNativePlugin: CAPPlugin, CAPBridgedPlugin {
     // MARK: Privacy cover in the app switcher
 
     @objc private func appWillResignActive() {
-        DispatchQueue.main.async {
-            guard self.cover == nil, let window = self.bridge?.viewController?.view.window else { return }
-            let v = UIView(frame: window.bounds)
-            v.backgroundColor = .black
-            v.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            window.addSubview(v)
-            self.cover = v
-        }
+        // A Face ID prompt over the app, not the app leaving: no cover, so the lock screen stays as it is
+        if prompting { return }
+        DispatchQueue.main.async { self.showCover() }
+    }
+
+    // Leaving the app while a Face ID prompt was up: the cover goes on before iOS takes the app switcher's picture
+    @objc private func appDidEnterBackground() {
+        showCover()
+    }
+
+    private func showCover() {
+        guard cover == nil, let window = bridge?.viewController?.view.window else { return }
+        let v = UIView(frame: window.bounds)
+        v.backgroundColor = .black
+        v.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        window.addSubview(v)
+        cover = v
     }
 
     @objc private func appDidBecomeActive() {

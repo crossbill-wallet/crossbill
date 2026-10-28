@@ -156,6 +156,8 @@ describe('the price for a price widget', () => {
     const m = await model();
     await m.checkWidgets();
     await vi.waitFor(() => expect(fake.state.requests.some((u) => u.includes('candles'))).toBe(true));
+    // The day's chart: 15-minute candles, whatever other ranges the Market tab has
+    expect(fake.state.requests.find((u) => u.includes('candles'))).toMatch(/interval=15m/);
     await new Promise((r) => setTimeout(r, 0));
     await m.sendWidgets();
     expect(last().price.points).toHaveLength(48);

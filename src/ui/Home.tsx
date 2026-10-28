@@ -4,7 +4,7 @@ import { formatAmount, unitLabel } from '../core/units';
 import { formatPrice, formatUsd } from '../core/price';
 import { SKINS } from '../app/look';
 import type { WalletRuntime } from '../app/model';
-import { Address, Amount, Chevron, Sheet, Snowflake, shortAddress, timeAgo, useApp, useNav, Field } from './kit';
+import { Address, Amount, Chevron, Sheet, Snowflake, shortAddress, useApp, useMoney, useNav, Field } from './kit';
 
 type Tab = 'activity' | 'coins' | 'addresses';
 
@@ -24,20 +24,10 @@ export function Home() {
   const snap = w.snapshot;
   const unit = app.settings.unit;
   const on = isOptedIn(app.replayDecision());
-  const usd = app.settings.balanceView === 'usd' && app.settings.prices;
-  const ticker = app.price.ticker;
-
-  // The dollar figure keeps to a price under a minute old while it's showing
-  useEffect(() => {
-    if (!usd) return;
-    const unwatch = app.watchPrice();
-    void app.loadPrice();
-    const t = setInterval(() => void app.loadPrice(), 60_000);
-    return () => {
-      unwatch();
-      clearInterval(t);
-    };
-  }, [usd, app]);
+  // Dollars or coins, here and in the lists below; the price stays under a minute old while dollars show
+  const money = useMoney();
+  const usd = money.usd;
+  const ticker = money.ticker;
 
   const bal = snap?.balance ?? { confirmed: 0, unconfirmed: 0, immature: 0 };
   const sub: string[] = [];
@@ -54,17 +44,17 @@ export function Home() {
   return (
     <div className="screen">
       <section className="band">
-        <div className="top">
+        <div className="top flip">
+          <BlockHeight />
           <button className="wallet-name" onClick={() => setSwitcher(true)} aria-haspopup="dialog">
             <span className="name">{w.config.name}</span>
             <Chevron dir="down" />
           </button>
-          <BlockHeight />
         </div>
         <StatusBanner />
         <button
           className={`balance${usd ? ' usd' : ''}`}
-          onClick={() => app.settings.prices && void app.updateSettings({ balanceView: usd ? 'coin' : 'usd' })}
+          onClick={money.toggle}
           aria-label={usd ? 'Balance in US dollars. Tap to show it in coins' : `Balance in ${unitLabel(unit)}${app.settings.prices ? '. Tap to show it in US dollars' : ''}`}
         >
           {usd ? (ticker ? formatUsd(bal.confirmed, ticker.last) : '$ ...') : formatAmount(bal.confirmed, unit)}
@@ -85,7 +75,7 @@ export function Home() {
         <div className="unlock-banner" data-skin={fresh.id}>
           <span className="swatch" aria-hidden />
           <span className="text">
-            <strong>{fresh.name} skin opened.</strong> Try it in Settings, Appearance.
+            <strong>{fresh.name} skin opened.</strong> Try it in Settings, Appearance and widgets.
           </span>
           <button
             className="btn small secondary"
@@ -256,9 +246,15 @@ function StatusBanner() {
   );
 }
 
+/** How many transactions Activity shows at first, and how many more each Load more adds. */
+const ACTIVITY_PAGE = 10;
+
 function Activity({ w }: { w: WalletRuntime }) {
   const app = useApp();
   const nav = useNav();
+  const money = useMoney();
+  const [shown, setShown] = useState(ACTIVITY_PAGE);
+  useEffect(() => setShown(ACTIVITY_PAGE), [w.config.id]);
   const txs = w.snapshot?.txs ?? [];
   if (!txs.length) {
     return (
@@ -269,26 +265,39 @@ function Activity({ w }: { w: WalletRuntime }) {
     );
   }
   return (
+    <>
     <ul className="list">
-      {txs.map((t) => {
+      {txs.slice(0, shown).map((t) => {
         const label = app.txLabel(w, t);
-        const status = t.confirmations === 0 ? 'Unconfirmed' : t.confirmations < 6 ? `${t.confirmations} confirmation${t.confirmations > 1 ? 's' : ''}` : timeAgo(t.time);
+        // No date: only whether it has settled, until six confirmations
+        const status = t.confirmations === 0 ? 'Unconfirmed' : t.confirmations < 6 ? `${t.confirmations} confirmation${t.confirmations > 1 ? 's' : ''}` : '';
+        const raisable = t.confirmations === 0 && t.replaceable && t.allInputsMine && !t.outputs.some((o) => o.spentBy);
         return (
           <li key={t.txid}>
             <button className="row" onClick={() => nav.push({ name: 'tx', txid: t.txid })}>
               <div className="main">
                 <div className="title">{label ?? (t.coinbase ? 'Mined' : t.net >= 0 ? 'Received' : 'Sent')}</div>
-                <div className="meta">
-                  {status}
-                  {t.confirmations === 0 && t.replaceable && t.allInputsMine && !t.outputs.some((o) => o.spentBy) ? ', fee can be raised' : ''}
-                </div>
+                {status && (
+                  <div className="meta">
+                    {status}
+                    {raisable ? ', fee can be raised' : ''}
+                  </div>
+                )}
               </div>
-              <div className={`amt ${t.net < 0 ? 'out' : ''}`}>{formatAmount(t.net, app.settings.unit, { sign: true })}</div>
+              <div className={`amt ${t.net < 0 ? 'out' : 'in'}`}>{money.text(t.net, { sign: true })}</div>
             </button>
           </li>
         );
       })}
     </ul>
+    {txs.length > shown && (
+      <div className="load-more">
+        <button className="btn secondary" onClick={() => setShown(shown + ACTIVITY_PAGE)}>
+          Load more transactions
+        </button>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -296,6 +305,7 @@ function Coins({ w }: { w: WalletRuntime }) {
   const app = useApp();
   const nav = useNav();
   const [open, setOpen] = useState<string | null>(null);
+  const money = useMoney();
   const coins = app.coins(w).sort((a, b) => b.value - a.value);
   const activation = app.net.blake2bHeight;
   if (!coins.length) {
@@ -328,7 +338,7 @@ function Coins({ w }: { w: WalletRuntime }) {
                   </div>
                   <div className="meta">{c.height == null ? 'Unconfirmed' : `${c.confirmations.toLocaleString('en-US')} confirmation${c.confirmations === 1 ? '' : 's'}`}</div>
                 </div>
-                <div className="amt">{formatAmount(c.value, app.settings.unit)}</div>
+                <div className="amt">{money.text(c.value)}</div>
               </button>
             </li>
           );
@@ -386,6 +396,7 @@ function CoinSheet({ w, coin, onClose, onSpend }: { w: WalletRuntime; coin: Retu
 
 function Addresses({ w }: { w: WalletRuntime }) {
   const app = useApp();
+  const money = useMoney();
   const [chain, setChain] = useState<0 | 1>(0);
   const [open, setOpen] = useState<number | null>(null);
   const used = w.snapshot?.highestUsed[chain] ?? -1;
@@ -425,7 +436,7 @@ function Addresses({ w }: { w: WalletRuntime }) {
                     {got == null ? ', unused' : ''}
                   </div>
                 </div>
-                {got != null && <div className="amt">{formatAmount(got, app.settings.unit)}</div>}
+                {got != null && <div className="amt">{money.text(got)}</div>}
               </button>
             </li>
           );

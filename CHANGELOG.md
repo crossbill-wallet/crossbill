@@ -1,15 +1,30 @@
 # Changes
 
-## Unreleased
+## 0.5.0
 
 New:
 
+- **Notifications.** Settings, Notifications turns on notifications for a payment's first confirmation and its sixth, sent or received, and for Lightning payments that go through. Each kind has its own switch. They come from the iPhone itself: iOS wakes Crossbill for a short check now and then, at most about every 15 minutes and at times iOS picks, and never after the app is swiped away in the app switcher. They don't show amounts unless you turn that on, since the Lock Screen shows them to anyone holding the phone. Turning them on keeps the node's password and the Lightning key readable while the iPhone is locked, so a check can run then (see [SECURITY.md](SECURITY.md)). Off by default.
+- **Dollars throughout.** Amounts show in US dollars by default, at Neoxa Exchange's current XBT price: the balance, and the Activity, Coins and Addresses lists with it. Tap the balance to switch to coins and back, on the Wallet tab and now on the Lightning tab too. Past payments use today's price. With prices turned off, or while the price can't be had, amounts show in coins. The choice is also in Settings, Appearance and widgets.
+- **Swipe between tabs.** Swipe left or right to move to the next or previous tab.
+- **Swap with Lightning Fork.** The Lightning tab links to Paul Lamb's swap service at lightningfork.com/swap.
 - **Crossbill on StartOS, the server,** packaged for StartOS as [crossbill-startos](https://github.com/crossbill-wallet/crossbill-startos). The same screens, served from your own server to a browser. Watch-only: the server never holds seed words, and every send is signed on a Krux. One password signs in, made by the Set Password action on StartOS (or by the server at its first start elsewhere). The node's RPC credentials stay on the server, which passes on only the calls the app makes. Lightning works through StartOS or Tor, with payments refused by the server until they're turned on for it. See [docs/server.md](docs/server.md).
+- **A one-hour chart** on the Market tab, next to the day, week, month and year.
+- **Load more.** The Activity list shows the 10 latest payments, with a button for more.
 
 Changed:
 
+- **Settings** is a short list of groups (Wallets, Security, Node and Lightning, Appearance and widgets, Notifications, Spending, Hardware wallet, About and support), each opening to its settings.
+- **Wallet tab.** The block height is top left and the wallet picker top right. Activity rows drop the date and show only whether a payment is unconfirmed or how many confirmations it has, up to 5. Payments received are in bold. Activity, Coins and Addresses are spread evenly across the width.
+- **Market tab.** The price and the chart sit on the skin's colours, as the Wallet tab's balance does. The sections below (About XBT, Talk to people, Software and the rest) start closed; tap one to open it.
 - The server can sign in to the node with its RPC cookie file (`CROSSBILL_RPC_COOKIE_FILE`), read again for each call, as the StartOS package does.
 - `npm run build:server` builds the StartOS version's screens into `dist-server`, `npm run server` starts the server, and CI builds both. The iPhone build is unchanged: it carries none of the StartOS code.
+
+Fixed:
+
+- Opening the app no longer goes black while Face ID is asked for: the lock screen stays until Face ID is done, then the Wallet tab appears.
+- The PIN pad on the lock screen had a box of the skin's colours behind it, on every skin but Crossbill's own.
+- On the Lightning tab, the amount moving into channels no longer runs off the edge.
 
 ## 0.4.1
 

@@ -39,6 +39,7 @@ export interface Candle {
 export type CandleInterval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
 
 export const CHART_RANGES: { id: string; label: string; interval: CandleInterval; limit: number }[] = [
+  { id: '1h', label: '1H', interval: '1m', limit: 60 },
   { id: '1d', label: '1D', interval: '15m', limit: 96 },
   { id: '1w', label: '1W', interval: '1h', limit: 168 },
   { id: '1m', label: '1M', interval: '4h', limit: 180 },
@@ -129,6 +130,17 @@ export function parseCandles(body: string, status = 200): Candle[] {
 }
 
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/**
+ * An amount in sats in US dollars, signed when asked, and as "<$0.01" when it's under a cent rather than a
+ * misleading $0.00.
+ */
+export function formatUsdAmount(sats: number, pricePerCoin: number, opts: { sign?: boolean } = {}): string {
+  const dollars = (Math.abs(sats) / 100_000_000) * pricePerCoin;
+  const sign = sats < 0 ? '-' : opts.sign && sats > 0 ? '+' : '';
+  if (dollars > 0 && dollars < 0.005) return `${sign}<$0.01`;
+  return `${sign}${usd.format(dollars)}`;
+}
 
 /** A balance in sats at a price in USD per coin, as $1,234.56. */
 export function formatUsd(sats: number, pricePerCoin: number): string {

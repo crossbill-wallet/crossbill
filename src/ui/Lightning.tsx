@@ -7,9 +7,12 @@ import { formatAmount, parseAmount, unitLabel } from '../core/units';
 import { LfError, quoteSecondsLeft, type LfActivityItem, type LfFees, type LfInvoice, type LfOnchainEstimate, type LfQuote, type LfTarget } from '../core/lfapi';
 import { fromOwnBridge, lightningError, type PaymentOutcome } from '../app/lightning';
 import { isNative, ShrikeNative } from '../app/native';
-import { Address, Amount, Chevron, Field, Qr, Screen, SecondFactorField, Sheet, codeReady, copyText, timeAgo, useApp, useNav } from './kit';
+import { Address, Amount, Chevron, Field, Qr, Screen, SecondFactorField, Sheet, codeReady, copyText, openLink, timeAgo, useApp, useMoney, useNav } from './kit';
 
 const sats = (n: number) => formatAmount(n, 'sats');
+
+/** Paul Lamb's swap service for Lightning Fork users */
+const SWAP_URL = 'https://lightningfork.com/swap';
 
 function useNow(every: number): number {
   const [now, setNow] = useState(() => Date.now());
@@ -50,6 +53,7 @@ export function LightningTab() {
     };
   }, [ln]);
 
+  const money = useMoney();
   if (!ln.paired) {
     return (
       <Screen title="Lightning" back={false}>
@@ -62,9 +66,10 @@ export function LightningTab() {
   const alias = s.bootstrap?.node?.alias || s.link?.alias || 'Your Lightning node';
   const where = s.route === 'lan' ? 'At home' : s.route === 'tor' ? 'Through Tor' : '';
   const sub: string[] = [];
+  const label = money.dollars ? '' : ` ${unitLabel(unit)}`;
   if (w) {
-    sub.push(`${formatAmount(w.onchain.confirmedSat, unit)} ${unitLabel(unit)} on chain`);
-    if (w.onchain.unconfirmedSat) sub.push(`${formatAmount(w.onchain.unconfirmedSat, unit, { sign: true })} confirming`);
+    sub.push(`${money.text(w.onchain.confirmedSat)}${label} on chain`);
+    if (w.onchain.unconfirmedSat) sub.push(`${money.text(w.onchain.unconfirmedSat, { sign: true })} confirming`);
   }
   const moving = w ? (w.lightning.inMotionSat ?? 0) + w.lightning.pendingOutboundSat : 0;
 
@@ -88,11 +93,16 @@ export function LightningTab() {
             </div>
           )}
         </div>
-        <div className="balance" aria-label={w ? `${formatAmount(w.lightning.outboundSat, unit)} ${unitLabel(unit)} you can send on Lightning` : 'Lightning balance not read yet'}>
-          {w ? formatAmount(w.lightning.outboundSat, unit) : '...'}
-          <small>{unitLabel(unit)}</small>
-        </div>
-        <div className="sub">{w ? `Can send on Lightning${moving ? `, ${formatAmount(moving, unit)} more on its way into channels` : ''}` : s.error ? 'Not read yet' : ' '}</div>
+        <button
+          className={`balance${money.dollars ? ' usd' : ''}`}
+          onClick={money.toggle}
+          aria-label={w ? `${money.text(w.lightning.outboundSat)}${label} you can send on Lightning${app.settings.prices ? `. Tap to show it in ${money.usd ? 'coins' : 'US dollars'}` : ''}` : 'Lightning balance not read yet'}
+        >
+          {w ? money.text(w.lightning.outboundSat) : '...'}
+          <small>{money.dollars ? 'USD' : unitLabel(unit)}</small>
+        </button>
+        <div className="sub">{w ? 'Can send on Lightning' : s.error ? 'Not read yet' : ' '}</div>
+        {moving > 0 && <div className="sub">{`+${money.text(moving)}${label} moving into channels`}</div>}
         <div className="sub">{sub.join(', ') || ' '}</div>
         <div className="actions">
           <button onClick={() => nav.push({ name: 'ln-receive' })}>Receive</button>
@@ -102,6 +112,15 @@ export function LightningTab() {
 
       <div style={{ padding: '14px var(--pad) 0' }}>
         <PendingBanner />
+        <button className="row setting swap-link" onClick={() => void openLink(SWAP_URL)}>
+          <div className="main">
+            <div className="title">Swap with Lightning Fork</div>
+            <div className="meta">Paul Lamb’s swap service, at lightningfork.com. Opens in Safari</div>
+          </div>
+          <span className="go" aria-hidden>
+            <Chevron dir="right" />
+          </span>
+        </button>
         {s.needsPairing ? (
           <div className="banner error" role="alert">
             {s.needsPairing}
@@ -261,7 +280,7 @@ function activityMeta(it: LfActivityItem): string {
 function LnActivity() {
   const app = useApp();
   const s = app.lightning.state;
-  const unit = app.settings.unit;
+  const money = useMoney();
   const [open, setOpen] = useState<LfActivityItem | null>(null);
   const items = s.activity;
   if (!items) {
@@ -287,13 +306,13 @@ function LnActivity() {
                   <div className="title">{activityTitle(it)}</div>
                   <div className="meta">{activityMeta(it)}</div>
                 </div>
-                <div className={`amt ${it.direction === 'out' ? 'out' : ''}`}>
+                <div className={`amt ${it.direction === 'out' ? 'out' : 'in'}`}>
                   {own ? (
                     <>
                       {sats(it.bitcoinInvoice!.amountSat)} <span style={{ fontFamily: 'var(--sans)', fontSize: '0.8em', color: 'var(--slate)' }}>sats (BTC)</span>
                     </>
                   ) : (
-                    formatAmount(it.direction === 'out' ? -it.amountSat : it.amountSat, unit, { sign: true })
+                    money.text(it.direction === 'out' ? -it.amountSat : it.amountSat, { sign: true })
                   )}
                 </div>
               </button>

@@ -126,6 +126,10 @@ export interface LightningHost {
   /** Uses up a two-factor code when two-factor is on; nothing otherwise */
   checkSecondFactor(code: string | undefined): Promise<void>;
   changed(): void;
+  /** The activity was just read, for notifications */
+  sawActivity?(items: LfActivityItem[]): Promise<void>;
+  /** Background checks are on: the key must be readable while the iPhone is locked */
+  readableInBackground?(): boolean;
 }
 
 /** How long a check that the home address answers is believed. */
@@ -184,20 +188,49 @@ export class LightningController {
     this.host.changed();
   }
 
+  /**
+   * The key is readable without asking, and only while the iPhone has a passcode. With background checks on it can
+   * also be read while the iPhone is locked, which iOS can't combine with the passcode condition.
+   */
+  private async storeKey(key: string, background: boolean): Promise<void> {
+    // Both: the plugin refuses unless the iPhone has a passcode, then stores it readable after the first unlock
+    await ShrikeNative.vaultSet({ key: LIGHTNING_KEY, value: key, requireAuth: false, whenPasscodeSet: true, afterFirstUnlock: background });
+  }
+
+  /** Stores the key again for background checks being turned on or off. Nothing to do when not paired. */
+  async storeKeyAgain(background: boolean): Promise<void> {
+    if (!this.state.link) return;
+    const key = await this.keyOrNull();
+    if (!key) return;
+    try {
+      await this.storeKey(key, background);
+    } catch (e) {
+      // Turning off with the passcode removed since: the key can't be kept without one, as when it was stored
+      // that way to begin with and iOS removed it with the passcode
+      if (background || (e as { code?: string }).code !== 'no-passcode') throw e;
+      await ShrikeNative.vaultDelete({ key: LIGHTNING_KEY }).catch(() => undefined);
+      this.key = null;
+      this.client = null;
+      this.set({ needsPairing: 'This iPhone has no passcode now, so its key for your Lightning node was removed. Set a passcode and pair again.' });
+    }
+  }
+
   async init(): Promise<void> {
     const link = await readJson<LightningLink>(LIGHTNING_FILE);
     const pending = await readJson<PendingPayment>(LIGHTNING_PENDING_FILE);
     this.state = { ...this.state, link, pending };
   }
 
+  /** The key, or null when there's none. Throws when it's there but can't be read now, as while the iPhone is locked. */
   private async keyOrNull(): Promise<string | null> {
     if (this.key) return this.key;
+    let r: { value: string | null };
     try {
-      const r = await ShrikeNative.vaultGet({ key: LIGHTNING_KEY, prompt: 'Use your Lightning node' });
-      this.key = r.value;
+      r = await ShrikeNative.vaultGet({ key: LIGHTNING_KEY, prompt: 'Use your Lightning node' });
     } catch {
-      this.key = null;
+      throw new Error('Crossbill couldn’t read its key for your Lightning node just now. Try again in a moment.');
     }
+    this.key = r.value;
     return this.key;
   }
 
@@ -404,7 +437,7 @@ export class LightningController {
       last: client.last,
     };
     try {
-      await ShrikeNative.vaultSet({ key: LIGHTNING_KEY, value: res.apiKey, requireAuth: false, whenPasscodeSet: true });
+      await this.storeKey(res.apiKey, this.host.readableInBackground?.() ?? false);
     } catch (e) {
       await client.unpair(res.apiKey).catch(() => undefined);
       throw e;
@@ -490,7 +523,8 @@ export class LightningController {
   // ------------------------------------------------------------------------------------------- reading
 
   /** Balances, activity, and once in a while what the node can do. One at a time. */
-  refresh(): Promise<void> {
+  /** With resume false (a background check), a payment waiting for an answer is left for when the app is open. */
+  refresh(opts: { resume?: boolean } = {}): Promise<void> {
     if (!this.paired) return Promise.resolve();
     if (this.refreshing) return this.refreshing;
     this.refreshing = (async () => {
@@ -513,6 +547,7 @@ export class LightningController {
           if (fresh) await this.adoptEndpoints(fresh);
         }
         this.set({ wallet, activity: activity.items, bootstrap, sha256, error: null, needsPairing: null, updatedAt: Date.now() });
+        await this.host.sawActivity?.(activity.items).catch(() => undefined);
       } catch (e) {
         this.set({ error: lightningError(e), needsPairing: this.pairingProblem(e) });
       } finally {
@@ -520,7 +555,7 @@ export class LightningController {
         this.set({ loading: false });
       }
       const p = this.state.pending;
-      if (p && !this.state.error && this.pendingCheck(p) === 'check') void this.resumePending();
+      if (p && opts.resume !== false && !this.state.error && this.pendingCheck(p) === 'check') void this.resumePending();
     })();
     return this.refreshing;
   }
