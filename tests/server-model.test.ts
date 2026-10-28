@@ -49,7 +49,7 @@ const s = await startServer(
     dataDir: dir,
     staticDir: join(dir, 'no-build'),
     network: 'testnet4',
-    rpc: { url: new URL(`http://127.0.0.1:${knotsPort}`), user: 'u', password: 'p', ca: null },
+    rpc: { url: new URL(`http://127.0.0.1:${knotsPort}`), user: 'u', password: 'p', cookieFile: null, ca: null },
     lightning: { url: new URL(`http://127.0.0.1:${lfPort}`), ca: null, paymentsOverride: null },
     tor: null,
     extraRpcMethods: [],

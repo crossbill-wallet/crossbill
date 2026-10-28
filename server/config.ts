@@ -26,6 +26,11 @@ export interface ServerConfig {
     url: URL;
     user: string;
     password: string;
+    /**
+     * Bitcoin's RPC cookie file (`user:password`), read again for every call: the node writes a new one each time it
+     * starts. Set, it takes the place of the user and password
+     */
+    cookieFile: string | null;
     /** A root certificate to trust for an https RPC address that isn't an onion */
     ca: string | null;
   };
@@ -113,6 +118,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       url: parseUrl('CROSSBILL_RPC_URL', env.CROSSBILL_RPC_URL, true),
       user: env.CROSSBILL_RPC_USER ?? '',
       password: readSecret(env, 'CROSSBILL_RPC_PASSWORD') ?? '',
+      cookieFile: env.CROSSBILL_RPC_COOKIE_FILE ? resolve(env.CROSSBILL_RPC_COOKIE_FILE) : null,
       ca: caFile('CROSSBILL_RPC_CA_FILE'),
     },
     lightning: {

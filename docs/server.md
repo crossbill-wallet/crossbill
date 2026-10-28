@@ -1,11 +1,12 @@
 # Crossbill on StartOS: the server
 
-The same Crossbill screens, served from your own server to any browser, for StartOS node runners who'd rather not install an iPhone app, or who want their wallet on a computer too. It isn't packaged for StartOS yet: this page covers the server itself, and trying it from a Mac against your own node.
+The same Crossbill screens, served from your own server to any browser, for StartOS node runners who'd rather not install an iPhone app, or who want their wallet on a computer too. The StartOS package, [crossbill-startos](https://github.com/crossbill-wallet/crossbill-startos), runs it as a service on your server, beside Bitcoin Knots and Lightning Fork: its Instructions tab in StartOS walks through setting it up. This page covers the server itself, and trying it from a Mac against your own node.
 
 ## How it differs from the iPhone app
 
 - **Watch-only.** The server never holds seed words: it refuses to store them, and there's no screen to enter them. Wallets are added from a Krux's key and every send is signed on the Krux, by microSD file (or, for now, by pasting its QR codes' text: there's no camera scanner in the browser yet).
-- **Signing in.** One password opens Crossbill on the server. At first start the server makes one at random, prints it in its log and leaves it in `initial-password.txt` in its data folder. `npm run server -- set-password` changes it and signs out every session. There's no Face ID, app PIN or duress PIN; two-factor works as on the iPhone.
+- **Signing in.** One password opens Crossbill on the server. At first start the server makes one at random, prints it in its log and leaves it in `initial-password.txt` in its data folder; on StartOS, the package's **Set Password** action makes it instead, before the first start. `npm run server -- set-password` changes it and signs out every session. There's no Face ID, app PIN or duress PIN.
+- **Two-factor asks for its code as on the iPhone, but the page checks it,** and the server hands the page its key once signed in. So it guards against a slip, not against someone who has the password: on the server, the password is what keeps others out.
 - **The node is set on the server,** not in the page: the server reaches Bitcoin Knots with an RPC password the page never sees, and passes on only the RPC calls the app makes, to the node and its `cormorant` wallet.
 - **Lightning payments are off until you turn them on** for the server (`npm run server -- lightning-payments on`, or `CROSSBILL_LIGHTNING_PAYMENTS=on`). Off, Crossbill still pairs with Lightning Fork, shows balances and activity, and makes invoices, offers and addresses; a payment is refused by the server before it reaches the node, and the page says why. Lightning Fork's pairing key can pay, so this is how the server keeps a signed-in page from paying until you've decided it may.
 - **The server reaches Lightning Fork through StartOS** (or the dashboard's onion through Tor), never through its home address.
@@ -19,6 +20,7 @@ The server reads these environment variables:
 | --- | --- |
 | `CROSSBILL_RPC_URL` | Bitcoin Knots' RPC address, such as `http://10.0.3.1:8332`, or its onion: `https://….onion` (needs `CROSSBILL_TOR_SOCKS`). Required |
 | `CROSSBILL_RPC_USER`, `CROSSBILL_RPC_PASSWORD` | The RPC user and password. `CROSSBILL_RPC_PASSWORD_FILE` reads the password from a file instead |
+| `CROSSBILL_RPC_COOKIE_FILE` | Bitcoin's RPC cookie file, read again for every call since the node writes a new one each time it starts. Set, it takes the place of the user and password. On StartOS the package mounts the node's data read-only and points this at its `.cookie` |
 | `CROSSBILL_RPC_CA_FILE` | For an `https` RPC address that isn't an onion: the root certificate to trust, and no other (a StartOS server's root) |
 | `CROSSBILL_NETWORK` | `mainnet` (the default), `testnet4` or `regtest` |
 | `CROSSBILL_LF_URL` | Lightning Fork's dashboard, as the server reaches it. Unset: only the onion in the pairing code, through Tor |
@@ -73,6 +75,5 @@ The tests run the server against a pretend node and the pretend Lightning Fork d
 
 ## Not done yet
 
-- The StartOS package itself: its manifest, the dependency on Bitcoin Knots (and optionally Lightning Fork), the actions to show and change the password and to turn Lightning payments on, backups of the data folder, and the interface StartOS publishes on the network and over Tor.
 - A camera scanner in the browser, for the Krux's QR codes.
 - A way to sign out from the page.

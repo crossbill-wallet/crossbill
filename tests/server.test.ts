@@ -4,7 +4,7 @@
 
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import { createServer as createNetServer, connect as netConnect, type Server as NetServer } from 'node:net';
-import { mkdtempSync, rmSync, statSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -91,7 +91,7 @@ function config(dataDir: string, over: Partial<ServerConfig> = {}): ServerConfig
     dataDir,
     staticDir: join(dataDir, 'no-build'),
     network: 'mainnet',
-    rpc: { url: new URL(`http://127.0.0.1:${knotsPort}`), user: 'crossbill', password: 'node-secret', ca: null },
+    rpc: { url: new URL(`http://127.0.0.1:${knotsPort}`), user: 'crossbill', password: 'node-secret', cookieFile: null, ca: null },
     lightning: { url: new URL(`http://127.0.0.1:${lfPort}`), ca: null, paymentsOverride: null },
     tor: null,
     extraRpcMethods: [],
@@ -312,6 +312,27 @@ describe('the node', () => {
     await s.close();
   });
 
+  it('reads the node’s cookie file for every call, as the node rewrites it on each start', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'crossbill-cookie-'));
+    dirs.push(dir);
+    const cookie = join(dir, '.cookie');
+    writeFileSync(cookie, '__cookie__:first\n');
+    const s = await start({ rpc: { url: new URL(`http://127.0.0.1:${knotsPort}`), user: 'ignored', password: 'ignored', cookieFile: cookie, ca: null } });
+    const p = await signedIn(s);
+    const ask = () => p.relay({ kind: 'rpc', url: 'http://node/', body: JSON.stringify({ method: 'getblockchaininfo' }) });
+    expect((await ask()).status).toBe(200);
+    expect(knotsSeen[0].headers.authorization).toBe('Basic ' + Buffer.from('__cookie__:first').toString('base64'));
+    writeFileSync(cookie, '__cookie__:second\n');
+    expect((await ask()).status).toBe(200);
+    expect(knotsSeen[1].headers.authorization).toBe('Basic ' + Buffer.from('__cookie__:second').toString('base64'));
+    rmSync(cookie);
+    const gone = await ask();
+    expect(gone.status).toBe(502);
+    expect((await gone.json()).error.message).toMatch(/cookie/);
+    expect(knotsSeen).toHaveLength(2);
+    await s.close();
+  });
+
   it('passes on a batch of calls the app makes', async () => {
     const s = await start();
     const p = await signedIn(s);
@@ -352,7 +373,7 @@ describe('the node', () => {
   });
 
   it('says plainly when the node can’t be reached', async () => {
-    const s = await start({ rpc: { url: new URL('http://127.0.0.1:1'), user: 'u', password: 'p', ca: null } });
+    const s = await start({ rpc: { url: new URL('http://127.0.0.1:1'), user: 'u', password: 'p', cookieFile: null, ca: null } });
     const p = await signedIn(s);
     const res = await p.relay({ kind: 'rpc', url: 'http://node/', body: JSON.stringify({ method: 'getblockchaininfo' }) });
     expect(res.status).toBe(502);
