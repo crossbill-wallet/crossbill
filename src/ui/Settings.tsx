@@ -271,7 +271,7 @@ export function Appearance() {
       <div className="section-title">Skin</div>
       <p className="note" style={{ marginTop: 0 }}>
         {mainnet
-          ? 'More skins open as the wallets on this phone hold more, counting confirmed coins. Once open, a skin stays open.'
+          ? `More skins open as the wallets on this ${isServer ? 'server' : 'phone'} hold more, counting confirmed coins. Once open, a skin stays open.`
           : 'On a test network every skin is open to try. On mainnet they open as your confirmed balance grows.'}
       </p>
       {SKINS.map((k) => {
@@ -645,7 +645,7 @@ export function WalletInfo({ id }: { id: string }) {
         <>
           <p>
             {krux
-              ? 'This deletes the wallet’s history from this phone. Your node and Shrike on your computer keep its history, and your paper copy its seed words. To add it again, scan the Krux’s key.'
+              ? `This deletes the wallet’s history from this ${isServer ? 'server' : 'phone'}. Your node and Shrike on your computer keep its history, and your paper copy its seed words. To add it again, scan the Krux’s key.`
               : 'This deletes the seed words and history from this phone. Your node and Shrike on your computer keep everything. You’ll need the seed words to add it again.'}
           </p>
           <div style={{ display: 'grid', gap: 10 }}>
@@ -656,7 +656,7 @@ export function WalletInfo({ id }: { id: string }) {
                 nav.reset();
               }}
             >
-              Remove from this phone
+              Remove from this {isServer ? 'server' : 'phone'}
             </button>
             <button className="btn secondary" onClick={() => setConfirmRemove(false)}>
               Keep it
@@ -665,7 +665,7 @@ export function WalletInfo({ id }: { id: string }) {
         </>
       ) : (
         <button className="btn danger" onClick={() => setConfirmRemove(true)}>
-          Remove from this phone
+          Remove from this {isServer ? 'server' : 'phone'}
         </button>
       )}
     </Screen>

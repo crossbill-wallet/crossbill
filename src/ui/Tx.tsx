@@ -7,6 +7,7 @@ import { friendlyError } from '../app/model';
 import { ShrikeNative } from '../app/native';
 import { explorerName, explorerOpenUrl, explorerTxUrl } from '../core/explorer';
 import { Address, Amount, EyeMark, Field, Screen, copyText, shortAddress, timeAgo, useApp, useNav } from './kit';
+import { isServer } from '../app/target';
 import { Review } from './Send';
 
 export function TxDetail({ txid }: { txid: string }) {
@@ -75,10 +76,19 @@ export function TxDetail({ txid }: { txid: string }) {
               className="btn secondary small"
               onClick={async () => {
                 setOpenError(null);
-                const url = explorerOpenUrl(explorerTxUrl(explorer, txid, app.settings.network));
+                // In a browser an onion opens as it is, in Tor Browser; onionhttp:// is the iPhone's way into Onion Browser
+                const link = explorerTxUrl(explorer, txid, app.settings.network);
+                const url = isServer ? link : explorerOpenUrl(link);
                 try {
                   const { opened } = await ShrikeNative.openUrl({ url });
-                  if (!opened) setOpenError(url.startsWith('onion') ? 'Install Onion Browser from the App Store to open onion addresses.' : 'No app on this phone opened the link.');
+                  if (!opened)
+                    setOpenError(
+                      isServer
+                        ? 'The browser didn’t open the link. Allow pop-ups for Crossbill and try again; an onion address opens in Tor Browser.'
+                        : url.startsWith('onion')
+                          ? 'Install Onion Browser from the App Store to open onion addresses.'
+                          : 'No app on this phone opened the link.',
+                    );
                 } catch (e) {
                   setOpenError(friendlyError(e));
                 }

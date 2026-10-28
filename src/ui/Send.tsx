@@ -7,6 +7,7 @@ import { ShrikeNative } from '../app/native';
 import type { ReplayDecision } from '../core/replay';
 import { KruxSign } from './Krux';
 import { Address, Amount, Field, RecipientNote, ReplayStatus, Screen, SecondFactorField, Sheet, Toggle, codeReady, describeKnown, parsePaymentText, shortAddress, useApp, useNav } from './kit';
+import { isServer } from '../app/target';
 
 interface Recipient {
   address: string;
@@ -433,7 +434,7 @@ export function Review({ w, draft, onBack, onDone, title = 'Review', replacing }
                 {checks[i].exact!.kind === 'contact'
                   ? `Saved as ${checks[i].exact!.name}`
                   : checks[i].exact!.kind === 'own'
-                    ? 'One of your wallets on this phone'
+                    ? `One of your wallets on this ${isServer ? 'server' : 'phone'}`
                     : `You’ve paid this address before`}
               </div>
             ) : (
@@ -497,7 +498,7 @@ export function Review({ w, draft, onBack, onDone, title = 'Review', replacing }
               {sending ? 'Getting it ready' : 'Sign on your Krux'}
             </button>
             <p className="note" style={{ textAlign: 'center' }}>
-              Nothing is signed on this iPhone. Your Krux shows you this payment and signs it.
+              Nothing is signed on this {isServer ? 'server' : 'iPhone'}. Your Krux shows you this payment and signs it.
             </p>
           </>
         ) : (

@@ -14,6 +14,7 @@ import { friendlyError, signerOf, type RescanChoice, type Signer, type WalletRun
 import { isNative, ShrikeNative } from '../app/native';
 import { KRUX_LINKS } from '../app/links';
 import { Address, Amount, Chevron, Choice, Field, Screen, Toggle, openLink, useApp, useNav } from './kit';
+import { isServer } from '../app/target';
 import { SentView } from './Send';
 
 /** What the Krux calls each address type, in Wallet, Customize, Script Type. */
@@ -219,7 +220,7 @@ export function AddKrux({ onBack, onDone }: { onBack: () => void; onDone: () => 
     const { wallet, waiting } = app.kruxKeyFor(k);
     if (wallet) {
       if (signerOf(wallet.config) === 'phone') setExisting(wallet);
-      else setError(`${wallet.config.name} is already on this phone, signed on this Krux.`);
+      else setError(`${wallet.config.name} is already on this ${isServer ? 'server' : 'phone'}, signed on this Krux.`);
       return;
     }
     setBusy(true);
@@ -240,7 +241,7 @@ export function AddKrux({ onBack, onDone }: { onBack: () => void; onDone: () => 
   if (!key) {
     return (
       <Screen title="Use my Krux" back={false} end={<button onClick={onBack}>Back</button>}>
-        <p style={{ marginTop: 0 }}>Your seed words stay on the Krux. This iPhone keeps the wallet’s public key, to watch it and to build sends for the Krux to sign.</p>
+        <p style={{ marginTop: 0 }}>Your seed words stay on the Krux. {isServer ? 'This server' : 'This iPhone'} keeps the wallet’s public key, to watch it and to build sends for the Krux to sign.</p>
         <ol className="steps">
           <li>
             On the Krux, choose <strong>Load Mnemonic</strong>, <strong>Words</strong>, and type your seed words. Or choose <strong>New Mnemonic</strong> to make new ones, and write them on the backup
@@ -320,7 +321,7 @@ export function AddKrux({ onBack, onDone }: { onBack: () => void; onDone: () => 
       >
         {busy ? 'Adding' : 'Add wallet'}
       </button>
-      <p className="note">No seed words go on this iPhone. Every send from this wallet is signed on the Krux.</p>
+      <p className="note">No seed words go on this {isServer ? 'server' : 'iPhone'}. Every send from this wallet is signed on the Krux.</p>
     </Screen>
   );
 }
@@ -810,9 +811,11 @@ export function HardwareScreen() {
             Add a wallet from a Krux
           </button>
         </div>
-        <p className="note">
-          To use a wallet already on this iPhone, open it in Settings, Wallets, and choose <strong>Sign with a Krux</strong>.
-        </p>
+        {!isServer && (
+          <p className="note">
+            To use a wallet already on this iPhone, open it in Settings, Wallets, and choose <strong>Sign with a Krux</strong>.
+          </p>
+        )}
       </Section>
 
       <Section title="Setting up">
@@ -868,7 +871,7 @@ export function HardwareScreen() {
         <dl className="facts faq">
           <div>
             <dt>The Krux won’t read Crossbill’s codes</dt>
-            <dd>Choose Low code detail on the signing screen, turn the iPhone’s brightness up, and hold the Krux a hand’s width or two from the screen.</dd>
+            <dd>Choose Low code detail on the signing screen, turn the {isServer ? 'screen’s' : 'iPhone’s'} brightness up, and hold the Krux a hand’s width or two from the screen.</dd>
           </div>
           <div>
             <dt>Unverified input amounts</dt>

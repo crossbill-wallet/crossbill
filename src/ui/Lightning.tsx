@@ -8,6 +8,7 @@ import { LfError, quoteSecondsLeft, type LfActivityItem, type LfFees, type LfInv
 import { fromOwnBridge, lightningError, type PaymentOutcome } from '../app/lightning';
 import { isNative, ShrikeNative } from '../app/native';
 import { Address, Amount, Chevron, Field, Qr, Screen, SecondFactorField, Sheet, codeReady, copyText, openLink, timeAgo, useApp, useMoney, useNav } from './kit';
+import { isServer } from '../app/target';
 
 const sats = (n: number) => formatAmount(n, 'sats');
 
@@ -413,8 +414,8 @@ function NotPaired() {
   return (
     <>
       <p style={{ marginTop: 0 }}>
-        Crossbill can send and receive Lightning payments through your own Lightning Fork node. Your node holds the money and the keys; this iPhone gets a key to its dashboard, which you can remove there at any
-        time.
+        Crossbill can send and receive Lightning payments through your own Lightning Fork node. Your node holds the money and the keys; this {isServer ? 'server' : 'iPhone'} gets a key to its dashboard, which you can
+        remove there at any time.
       </p>
       <button className="btn primary" onClick={() => nav.push({ name: 'ln-pair' })}>
         Pair with your node
@@ -547,7 +548,7 @@ export function LightningSettings() {
           </div>
         )}
         <div>
-          <dt>This iPhone in the dashboard</dt>
+          <dt>{isServer ? 'This server' : 'This iPhone'} in the dashboard</dt>
           <dd>{l.label}</dd>
         </div>
         <div>
@@ -583,10 +584,10 @@ export function LightningSettings() {
         Pair again
       </button>
       <button className="btn quiet" style={{ color: 'var(--ember)', display: 'block', marginTop: 10 }} onClick={() => setConfirm(true)}>
-        Unpair this iPhone
+        {isServer ? 'Unpair this server' : 'Unpair this iPhone'}
       </button>
       {confirm && (
-        <Sheet title="Unpair this iPhone?" onClose={() => setConfirm(false)}>
+        <Sheet title={isServer ? 'Unpair this server?' : 'Unpair this iPhone?'} onClose={() => setConfirm(false)}>
           <p style={{ marginTop: 0 }}>Crossbill removes its key from your node and forgets the node. Your money stays on the node. You can pair again from the dashboard at any time.</p>
           {s.pending && <div className="banner">A payment hasn’t finished ({s.pending.summary}). Crossbill stops tracking it; check your node’s activity before paying again.</div>}
           <button
@@ -598,7 +599,7 @@ export function LightningSettings() {
               setBusy(false);
               setConfirm(false);
               if (r.removedThere) nav.reset({ name: 'settings' });
-              else setNote('Crossbill forgot the node, but couldn’t reach it, so this iPhone may still be listed under Mobile app in its dashboard. Remove it there.');
+              else setNote(`Crossbill forgot the node, but couldn’t reach it, so this ${isServer ? 'server' : 'iPhone'} may still be listed under Mobile app in its dashboard. Remove it there.`);
             }}
           >
             {busy ? 'Unpairing' : 'Unpair'}
@@ -727,7 +728,13 @@ function PayScreen({ title, onBack, busy, children }: { title: string; onBack: (
 function ApproveNote({ needCode }: { needCode: boolean }) {
   return (
     <p className="note" style={{ textAlign: 'center' }}>
-      {needCode ? 'After the code, Face ID confirms it’s you. Your node makes the payment.' : 'Face ID confirms it’s you. Your node makes the payment.'}
+      {isServer
+        ? needCode
+          ? 'After the code, your node makes the payment.'
+          : 'Your node makes the payment.'
+        : needCode
+          ? 'After the code, Face ID confirms it’s you. Your node makes the payment.'
+          : 'Face ID confirms it’s you. Your node makes the payment.'}
     </p>
   );
 }
@@ -1050,7 +1057,7 @@ function SendOnchain({ t, onBack, onOutcome }: { t: LfTarget; onBack: () => void
     <PayScreen title="Send on chain" onBack={onBack} busy={busy}>
       <div className="note">To</div>
       <Address value={address} size="lg" />
-      <p className="note">From your Lightning node’s on-chain wallet, not from this iPhone’s wallets.</p>
+      <p className="note">From your Lightning node’s on-chain wallet, not from this {isServer ? 'server’s' : 'iPhone’s'} wallets.</p>
       <Field label={`Amount in ${unitLabel(unit)}`} htmlFor="lnoc-amt">
         <input id="lnoc-amt" className="input mono" inputMode="decimal" disabled={sendAll} value={sendAll ? '' : amountText} placeholder={sendAll ? 'Everything' : '0'} onChange={(e) => setAmountText(e.target.value)} />
       </Field>
@@ -1468,7 +1475,7 @@ function ReceiveAddress() {
             <Address value={a.address} size="lg" />
           </div>
           <p className="note" style={{ textAlign: 'center', marginTop: 0 }}>
-            Your Lightning node’s on-chain wallet, for opening channels. Not one of this iPhone’s wallets.
+            Your Lightning node’s on-chain wallet, for opening channels. Not one of this {isServer ? 'server’s' : 'iPhone’s'} wallets.
           </p>
           <ShareRow text={a.address} />
         </>

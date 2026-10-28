@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { friendlyError } from '../app/model';
 import { ShrikeNative } from '../app/native';
 import { Address, Chevron, Field, Screen, copyText, parsePaymentText, shortAddress, useApp, useNav } from './kit';
+import { isServer } from '../app/target';
 
 /** The Contacts tab: addresses saved to send to again, such as exchange deposit addresses. */
 export function Contacts() {
@@ -138,7 +139,7 @@ export function ContactEdit({ id, address, label }: { id?: string; address?: str
           </button>
         </div>
       </Field>
-      <Field label="Note" htmlFor="c-note" hint="Optional. Only on this phone.">
+      <Field label="Note" htmlFor="c-note" hint={`Optional. Only on this ${isServer ? 'server' : 'phone'}.`}>
         <input id="c-note" className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Such as checked 18 Oct" />
       </Field>
       {error && <div className="banner error">{error}</div>}

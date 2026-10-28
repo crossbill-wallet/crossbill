@@ -3,6 +3,7 @@ import { CHART_RANGES, formatCompact, formatPercent, formatPrice, formatUsd, typ
 import { friendlyError } from '../app/model';
 import { LINK_GROUPS } from '../app/links';
 import { Chevron, openLink, useApp } from './kit';
+import { isServer } from '../app/target';
 
 /** Price history per range, kept for five minutes so flipping between ranges doesn't ask again. */
 const chartCache = new Map<string, { at: number; candles: Candle[] }>();
@@ -116,7 +117,7 @@ export function Market() {
                 </div>
               )}
               <div>
-                <dt>{app.settings.network === 'mainnet' ? 'Your wallets on this phone' : 'Your test coins, at this price'}</dt>
+                <dt>{app.settings.network === 'mainnet' ? `Your wallets on this ${isServer ? 'server' : 'phone'}` : 'Your test coins, at this price'}</dt>
                 <dd className="mono">{formatUsd(held, t.last)}</dd>
               </div>
             </dl>
@@ -245,7 +246,7 @@ function PriceConnection() {
             )}
           </div>
           {left != null && <p className="conn-retry">Trying again by itself in {left < 60 ? `${left} s` : `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`}</p>}
-          {p.problem!.canGoDirect && <p className="conn-note">Without Tor, the exchange sees this iPhone’s IP address for that one request. It asks for the price only, never for anything about your wallets.</p>}
+          {p.problem!.canGoDirect && <p className="conn-note">Without Tor, the exchange sees this {isServer ? 'server’s' : 'iPhone’s'} IP address for that one request. It asks for the price only, never for anything about your wallets.</p>}
           {p.problem!.technical && (
             <details className="conn-tech">
               <summary>Technical details</summary>
