@@ -1,5 +1,11 @@
 # Changes
 
+## Unreleased
+
+New:
+
+- **A QR scanner in Crossbill on StartOS.** Wherever the iPhone app opens the camera (a Krux's key and its signed codes, a Lightning Fork pairing code, an invoice, an address), the browser version now opens the camera of the device it's on, phone or computer. The camera works on a secure address: the `https://` one StartOS gives, or an onion in Tor Browser. The scanner also opens a picture of a code, for a code on the same screen (take a screenshot), and takes a code's text pasted in. The iPhone app is unchanged.
+
 ## 0.5.0
 
 New:

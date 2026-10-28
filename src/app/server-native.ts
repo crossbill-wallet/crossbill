@@ -10,6 +10,7 @@ import { WebPlugin } from '@capacitor/core';
 import type { NativeHttpRequest, NativeHttpResponse, NetworkPath, ShrikeNativePlugin, TorHealth, TorRepairResult, TorStatus, WidgetTrouble } from './native';
 import { serverApi, serverInfo, ServerError } from './server-api';
 import { PRICE_HOST } from '../core/price';
+import type { Scanner } from './server-scanner';
 
 const PRICE_HOSTNAME = new URL(PRICE_HOST).hostname;
 
@@ -30,8 +31,6 @@ export function requestKind(req: Pick<NativeHttpRequest, 'url' | 'method'>): Ser
   if (u.pathname.startsWith('/api/v1/') && u.hostname !== PRICE_HOSTNAME) return 'lightning';
   return req.method === 'GET' ? 'price' : 'rpc';
 }
-
-const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class ShrikeNativeServer extends WebPlugin implements ShrikeNativePlugin {
   private async tor(): Promise<boolean> {
@@ -105,36 +104,34 @@ export class ShrikeNativeServer extends WebPlugin implements ShrikeNativePlugin 
     return { type: 'none' };
   }
 
-  private scanDone: ((v: string | null) => void) | null = null;
+  private scanner: Scanner | null = null;
 
   /**
-   * No camera yet: a code is pasted instead (the Krux's key as text, or its signed codes one at a time). For the
-   * Krux's signature, its microSD file works as on the iPhone.
+   * Opens the page's own scanner (src/app/server-scanner.ts): the camera of the device the page is open on, a
+   * picture of a code, or its pasted text. For the Krux's signature, its microSD file works as on the iPhone.
    */
   async scanQr(opts?: { parts?: boolean; title?: string }): Promise<{ value: string | null }> {
-    if (!opts?.parts) return { value: window.prompt('Paste what the QR code holds') };
-    const done = new Promise<string | null>((resolve) => (this.scanDone = resolve));
-    void (async () => {
-      while (this.scanDone) {
-        await pause(0);
-        const value = window.prompt(`${opts.title ?? 'Scan'}: paste a code, or leave it empty to stop`);
-        if (!this.scanDone) return;
-        if (!value) {
-          this.scanDone(null);
-          this.scanDone = null;
-          return;
-        }
-        this.notifyListeners('qrPart', { value });
-      }
-    })();
-    return { value: await done };
+    if (this.scanner) throw new NativeError('The scanner is already open', 'busy');
+    const { openScanner } = await import('./server-scanner');
+    const scanner = openScanner({
+      parts: opts?.parts ?? false,
+      title: opts?.title ?? 'Scan QR code',
+      onPart: (value) => void this.notifyListeners('qrPart', { value }),
+    });
+    this.scanner = scanner;
+    try {
+      return { value: await scanner.done };
+    } finally {
+      this.scanner = null;
+    }
   }
 
-  async scanQrProgress(): Promise<void> {}
+  async scanQrProgress(opts: { text: string; reset?: boolean }): Promise<void> {
+    this.scanner?.progress(opts.text, opts.reset ?? false);
+  }
 
   async scanQrFinish(): Promise<void> {
-    this.scanDone?.('finished');
-    this.scanDone = null;
+    this.scanner?.finish('finished');
   }
 
   async keepAwake(): Promise<void> {}
