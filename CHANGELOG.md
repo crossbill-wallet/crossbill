@@ -8,6 +8,7 @@ New:
 
 Changed:
 
+- The server can sign in to the node with its RPC cookie file (`CROSSBILL_RPC_COOKIE_FILE`), read again for each call, as the StartOS package does.
 - `npm run build:server` builds the StartOS version's screens into `dist-server`, `npm run server` starts the server, and CI builds both. The iPhone build is unchanged: it carries none of the StartOS code.
 
 ## 0.4.1

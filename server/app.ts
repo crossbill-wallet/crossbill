@@ -11,7 +11,7 @@
 // Everything but the health check and the sign-in page needs a session. API calls also need the X-Crossbill
 // header, which a page on another site can't send, and the session cookie is SameSite=Strict.
 
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { extname, join, resolve, sep } from 'node:path';
@@ -155,6 +155,20 @@ function basicAuth(user: string, password: string): string {
   return `Basic ${Buffer.from(`${user}:${password}`, 'utf8').toString('base64')}`;
 }
 
+/** The node's credentials: its cookie file as it is now, or the configured user and password. */
+function rpcAuthorization(config: ServerConfig): string {
+  const file = config.rpc.cookieFile;
+  if (!file) return basicAuth(config.rpc.user, config.rpc.password);
+  let cookie: string;
+  try {
+    cookie = readFileSync(file, 'utf8').trim();
+  } catch {
+    throw new ForwardError('Can’t read the node’s RPC cookie. Check the node is running.', 'network');
+  }
+  if (!cookie.includes(':')) throw new ForwardError('The node’s RPC cookie isn’t in the form user:password.', 'network');
+  return `Basic ${Buffer.from(cookie, 'utf8').toString('base64')}`;
+}
+
 /** A path under a base address that may itself have a path (a dashboard behind a proxy at /lf, say). */
 function under(base: URL, pathAndQuery: string): URL {
   const u = new URL(base.href);
@@ -197,7 +211,7 @@ export function createHandler(config: ServerConfig, store: DataStore, auth: Auth
         url: target,
         method: 'POST',
         // The page's own Authorization (empty on StartOS) is dropped: the server holds the node's password
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: basicAuth(config.rpc.user, config.rpc.password) },
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: rpcAuthorization(config) },
         body: ask.body,
         timeoutMs: ask.timeoutMs,
         socks: isOnion(target.hostname) ? config.tor : null,

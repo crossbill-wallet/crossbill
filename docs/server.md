@@ -19,6 +19,7 @@ The server reads these environment variables:
 | --- | --- |
 | `CROSSBILL_RPC_URL` | Bitcoin Knots' RPC address, such as `http://10.0.3.1:8332`, or its onion: `https://….onion` (needs `CROSSBILL_TOR_SOCKS`). Required |
 | `CROSSBILL_RPC_USER`, `CROSSBILL_RPC_PASSWORD` | The RPC user and password. `CROSSBILL_RPC_PASSWORD_FILE` reads the password from a file instead |
+| `CROSSBILL_RPC_COOKIE_FILE` | Bitcoin's RPC cookie file, read again for every call since the node writes a new one each time it starts. Set, it takes the place of the user and password. On StartOS the package mounts the node's data read-only and points this at its `.cookie` |
 | `CROSSBILL_RPC_CA_FILE` | For an `https` RPC address that isn't an onion: the root certificate to trust, and no other (a StartOS server's root) |
 | `CROSSBILL_NETWORK` | `mainnet` (the default), `testnet4` or `regtest` |
 | `CROSSBILL_LF_URL` | Lightning Fork's dashboard, as the server reaches it. Unset: only the onion in the pairing code, through Tor |
