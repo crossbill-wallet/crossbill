@@ -4,7 +4,7 @@
 
 New:
 
-- **Crossbill on StartOS, the server** (not packaged yet). The same screens, served from your own server to a browser. Watch-only: the server never holds seed words, and every send is signed on a Krux. One password signs in; the server makes it at first start. The node's RPC password stays on the server, which passes on only the calls the app makes. Lightning works through StartOS or Tor, with payments refused by the server until they're turned on for it. See [docs/server.md](docs/server.md).
+- **Crossbill on StartOS, the server,** packaged for StartOS as [crossbill-startos](https://github.com/crossbill-wallet/crossbill-startos). The same screens, served from your own server to a browser. Watch-only: the server never holds seed words, and every send is signed on a Krux. One password signs in, made by the Set Password action on StartOS (or by the server at its first start elsewhere). The node's RPC credentials stay on the server, which passes on only the calls the app makes. Lightning works through StartOS or Tor, with payments refused by the server until they're turned on for it. See [docs/server.md](docs/server.md).
 
 Changed:
 
