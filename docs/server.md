@@ -4,13 +4,14 @@ The same Crossbill screens, served from your own server to any browser, for Star
 
 ## How it differs from the iPhone app
 
-- **Watch-only.** The server never holds seed words: it refuses to store them, and there's no screen to enter them. Wallets are added from a Krux's key and every send is signed on the Krux, by microSD file (or, for now, by pasting its QR codes' text: there's no camera scanner in the browser yet).
+- **Watch-only.** The server never holds seed words: it refuses to store them, and there's no screen to enter them. Wallets are added from a Krux's key and every send is signed on the Krux, by its QR codes or by microSD file.
 - **Signing in.** One password opens Crossbill on the server. At first start the server makes one at random, prints it in its log and leaves it in `initial-password.txt` in its data folder; on StartOS, the package's **Set Password** action makes it instead, before the first start. `npm run server -- set-password` changes it and signs out every session. There's no Face ID, app PIN or duress PIN.
 - **Two-factor asks for its code as on the iPhone, but the page checks it,** and the server hands the page its key once signed in. So it guards against a slip, not against someone who has the password: on the server, the password is what keeps others out.
 - **The node is set on the server,** not in the page: the server reaches Bitcoin Knots with an RPC password the page never sees, and passes on only the RPC calls the app makes, to the node and its `cormorant` wallet.
 - **Lightning payments are off until you turn them on** for the server (`npm run server -- lightning-payments on`, or `CROSSBILL_LIGHTNING_PAYMENTS=on`). Off, Crossbill still pairs with Lightning Fork, shows balances and activity, and makes invoices, offers and addresses; a payment is refused by the server before it reaches the node, and the page says why. Lightning Fork's pairing key can pay, so this is how the server keeps a signed-in page from paying until you've decided it may.
 - **The server reaches Lightning Fork through StartOS** (or the dashboard's onion through Tor), never through its home address.
-- **No widgets, no Tor in the page.** The price comes through the server, and through Tor only when the server has a Tor proxy.
+- **Scanning a QR code** uses the camera of the device the page is open on, a phone or a computer. Browsers allow the camera only on a secure address: the `https://` one StartOS gives the interface, an onion in Tor Browser, or `127.0.0.1` on a Mac. The scanner also opens a picture of a code (a screenshot, when the code is on the same screen) and takes a code's text pasted in.
+- **No widgets, no notifications, no Tor in the page.** The price comes through the server, and through Tor only when the server has a Tor proxy.
 
 ## Settings
 
@@ -55,9 +56,9 @@ This reaches your node the way the iPhone app does: Bitcoin Knots' RPC onion, th
 
    It prints the password to sign in with. `CROSSBILL_HOST=127.0.0.1` keeps the page on this Mac only.
 6. **Open** http://127.0.0.1:8080 in a browser and sign in. Crossbill connects to your node through Tor; the first time takes up to a minute.
-7. **Add your Krux wallet:** on the Krux, save its key to microSD (or show its QR code), then choose **Open the key file from microSD** (or paste the code's text). Check the balance and the first receive address match the iPhone app.
-8. **A small send:** build it, choose **Save for microSD**, sign it on the Krux (**Load from SD card**, **Sign to SD card**), and open the signed file back in Crossbill. Check it in the iPhone app, or Shrike on your computer.
-9. **Lightning, if you want to try it:** in the Lightning Fork dashboard, **Mobile app**, **Pair a phone**, then in Crossbill's Settings, **Lightning**, paste what the pairing code holds (its `lightningfork://pair` link, or its text). The dashboard lists the pairing as **Crossbill on StartOS**: remove it there when you're done. Payments stay off unless you also run `npm run server -- lightning-payments on` from this folder, in another Terminal window; it takes effect straight away.
+7. **Add your Krux wallet:** on the Krux, save its key to microSD (or show its QR code), then choose **Open the key file from microSD** (or **Scan the Krux's key** and hold its code up to the camera). Check the balance and the first receive address match the iPhone app.
+8. **A small send:** build it, choose **Save for microSD**, sign it on the Krux (**Load from SD card**, **Sign to SD card**), and open the signed file back in Crossbill. The Krux's QR codes work too, through the camera, both ways. Check it in the iPhone app, or Shrike on your computer.
+9. **Lightning, if you want to try it:** in the Lightning Fork dashboard, **Mobile app**, **Pair a phone**, then in Crossbill's Settings, **Lightning**, choose **Scan**. With the dashboard on this same screen, take a screenshot of the code and open it with **Open a picture of the code**; or open Crossbill on your phone's browser and scan it there. The dashboard lists the pairing as **Crossbill on StartOS**: remove it there when you're done. Payments stay off unless you also run `npm run server -- lightning-payments on` from this folder, in another Terminal window; it takes effect straight away.
 
 When you're done, stop the server with Control-C. Everything it kept is in `./data`; delete that folder to start over.
 
@@ -75,5 +76,4 @@ The tests run the server against a pretend node and the pretend Lightning Fork d
 
 ## Not done yet
 
-- A camera scanner in the browser, for the Krux's QR codes.
 - A way to sign out from the page.

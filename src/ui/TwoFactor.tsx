@@ -3,9 +3,10 @@ import { encodeSecret, groupSecret, newTotpSecret, otpauthUri } from '../core/to
 import { friendlyError } from '../app/model';
 import { ShrikeNative } from '../app/native';
 import { Qr, Screen, SecondFactorField, codeReady, copyPrivately, useApp, useNav } from './kit';
+import { isServer } from '../app/target';
 
 const ISSUER = 'Crossbill';
-const ACCOUNT = 'iPhone wallet';
+const ACCOUNT = isServer ? 'StartOS wallet' : 'iPhone wallet';
 
 /**
  * Turning two-factor on: what it does, the key for the authenticator (QR code, typed key, or straight into an
@@ -27,16 +28,26 @@ export function TwoFactorSetup({ onboarding, onDone, onCancel }: { onboarding?: 
       <Screen title="Two-factor" back={!onboarding && !onCancel} end={onCancel ? <button onClick={onCancel}>Cancel</button> : undefined}>
         <h2 className="lead">Ask for a code before every send</h2>
         <p>
-          With two-factor on, sending needs a 6-digit code from an authenticator app as well as Face ID. That covers every send, raising a fee and cancelling. Showing seed words needs a code
-          too.
+          {isServer
+            ? 'With two-factor on, sending needs a 6-digit code from an authenticator app. That covers every send, raising a fee and cancelling.'
+            : 'With two-factor on, sending needs a 6-digit code from an authenticator app as well as Face ID. That covers every send, raising a fee and cancelling. Showing seed words needs a code too.'}
         </p>
         <p>Any authenticator app works, such as Google Authenticator, Microsoft Authenticator, 2FAS, Ente Auth, or the Passwords app on iPhone.</p>
-        <div className="banner">
-          It’s strongest with the authenticator on another device, such as a second phone or a tablet. Then someone who has this iPhone and its passcode still can’t send.
-        </div>
-        <p className="note">
-          The code is checked on this iPhone. It guards this app, not your seed words: anyone who has the words can spend with another wallet. Keep them on paper, out of sight.
-        </p>
+        {isServer ? (
+          <div className="banner">
+            The code is checked in this page, and anyone signed in to Crossbill can read its key. It guards against a slip, not against someone who has the password: on this server, the password is what
+            keeps others out.
+          </div>
+        ) : (
+          <>
+            <div className="banner">
+              It’s strongest with the authenticator on another device, such as a second phone or a tablet. Then someone who has this iPhone and its passcode still can’t send.
+            </div>
+            <p className="note">
+              The code is checked on this iPhone. It guards this app, not your seed words: anyone who has the words can spend with another wallet. Keep them on paper, out of sight.
+            </p>
+          </>
+        )}
         <div style={{ display: 'grid', gap: 10, marginTop: 18 }}>
           <button className="btn primary" onClick={() => setStep('key')}>
             Set up two-factor
@@ -60,17 +71,17 @@ export function TwoFactorSetup({ onboarding, onDone, onCancel }: { onboarding?: 
         <div className="section-title">Or type this key</div>
         <div className="secret mono">{groupSecret(secret)}</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '10px 0 4px' }}>
-          <button className="btn secondary small" onClick={async () => setNote((await copyPrivately(secret)) ? 'Key copied. It stays on this iPhone and clears from the clipboard in a minute.' : null)}>
+          <button className="btn secondary small" onClick={async () => setNote((await copyPrivately(secret)) ? (isServer ? 'Key copied.' : 'Key copied. It stays on this iPhone and clears from the clipboard in a minute.') : null)}>
             Copy key
           </button>
           <button
             className="btn secondary small"
             onClick={async () => {
               const r = await ShrikeNative.openUrl({ url: uri }).catch(() => ({ opened: false }));
-              setNote(r.opened ? 'Add the entry in the app that opened, then come back here.' : 'No app on this iPhone opened it. Scan the QR code from your authenticator instead.');
+              setNote(r.opened ? 'Add the entry in the app that opened, then come back here.' : `No app on this ${isServer ? 'device' : 'iPhone'} opened it. Scan the QR code from your authenticator instead.`);
             }}
           >
-            Add to an app on this iPhone
+            {isServer ? 'Add to an app on this device' : 'Add to an app on this iPhone'}
           </button>
         </div>
         <p className="note">{note ?? 'Time-based, 6 digits, every 30 seconds, if your app asks.'}</p>
@@ -137,7 +148,7 @@ export function RecoveryCodes({ codes, title, onDone }: { codes: string[]; title
       <p className="note">This is the only time they’re shown. Settings can make a new set later, which replaces these.</p>
       <div style={{ display: 'grid', gap: 10 }}>
         <button className="btn secondary" onClick={async () => setCopied(await copyPrivately(codes.join('\n'), 120))}>
-          {copied ? 'Copied for two minutes, on this iPhone only' : 'Copy them'}
+          {copied ? (isServer ? 'Copied' : 'Copied for two minutes, on this iPhone only') : 'Copy them'}
         </button>
         <button className="btn primary" onClick={onDone}>
           I’ve saved them
@@ -169,7 +180,7 @@ export function TwoFactorScreen() {
     return (
       <Screen title={off ? 'Turn off two-factor' : 'New recovery codes'} back={false} end={<button onClick={() => setMode('status')}>Cancel</button>}>
         <p style={{ marginTop: 0 }}>
-          {off ? 'Sends will need Face ID only. Enter a code to confirm it’s you.' : 'A new set of recovery codes replaces the ones you have now, used or not. Enter a code to confirm it’s you.'}
+          {off ? (isServer ? 'Sends won’t need a code. Enter a code to confirm it’s you.' : 'Sends will need Face ID only. Enter a code to confirm it’s you.') : 'A new set of recovery codes replaces the ones you have now, used or not. Enter a code to confirm it’s you.'}
         </p>
         <SecondFactorField value={code} onChange={setCode} autoFocus />
         {error && <div className="banner error">{error}</div>}
@@ -206,7 +217,7 @@ export function TwoFactorScreen() {
           <div className="banner on-banner">
             <strong>On</strong>
             {since ? ` since ${new Date(since).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}` : ''}. A code from your authenticator is needed to send, raise a fee,
-            cancel, show seed words, and turn this off.
+            cancel,{isServer ? '' : ' show seed words,'} and turn this off.
           </div>
           <dl className="facts">
             <div>
@@ -224,13 +235,15 @@ export function TwoFactorScreen() {
           </div>
           <div className="section-title">Lost the authenticator?</div>
           <p className="note" style={{ marginTop: 0 }}>
-            A recovery code works in place of a code, once each. Use one to turn two-factor off, then set it up again with your new authenticator. Lost both? Your coins are safe with your seed words:
-            delete this app, install it again, and add your wallets with their seed words.
+            A recovery code works in place of a code, once each. Use one to turn two-factor off, then set it up again with your new authenticator. Lost both? Your coins are safe with your seed words:{' '}
+            {isServer
+              ? 'uninstall Crossbill on StartOS, install it again, and add your wallets from your Krux.'
+              : 'delete this app, install it again, and add your wallets with their seed words.'}
           </p>
         </>
       ) : (
         <>
-          <p style={{ marginTop: 0 }}>Off. Sends need Face ID only.</p>
+          <p style={{ marginTop: 0 }}>{isServer ? 'Off. Sends need no code.' : 'Off. Sends need Face ID only.'}</p>
           <button className="btn primary" onClick={() => setMode('setup')}>
             Set up two-factor
           </button>

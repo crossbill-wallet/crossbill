@@ -5,6 +5,7 @@ import { BACKUP_MIN_PASSWORD } from '../core/backup';
 import { friendlyError, type RestoreSummary } from '../app/model';
 import { isNative } from '../app/native';
 import { Field, Screen, useApp, useNav } from './kit';
+import { isServer } from '../app/target';
 
 function day(ms: number): string {
   return new Date(ms).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -45,8 +46,10 @@ export function BackupScreen() {
   return (
     <Screen title="Backup">
       <p style={{ marginTop: 0 }}>
-        One file with everything Crossbill keeps besides secrets: your wallets’ names and details, labels and frozen coins, saved contacts, settings and your node’s address. If this iPhone is lost, restore it on
-        the new one, then enter each wallet’s seed words, or scan its Krux.
+        One file with everything Crossbill keeps besides secrets: your wallets’ names and details, labels and frozen coins, saved contacts, settings and your node’s address.{' '}
+        {isServer
+          ? 'StartOS’s own backups of Crossbill already keep all of this. The file is a copy you can restore in another Crossbill, on StartOS or the iPhone app, then scan each wallet’s Krux.'
+          : 'If this iPhone is lost, restore it on the new one, then enter each wallet’s seed words, or scan its Krux.'}
       </p>
       <dl className="facts">
         <div>
@@ -73,7 +76,7 @@ export function BackupScreen() {
         <input id="bpw2" className="input" type="password" value={password2} onChange={(e) => setPassword2(e.target.value)} autoComplete="new-password" />
       </Field>
       {error && <div className="banner error">{error}</div>}
-      {saved && <div className="banner on-banner">Backup made. Keep the file somewhere other than this iPhone, such as iCloud Drive or a computer.</div>}
+      {saved && <div className="banner on-banner">Backup made. {isServer ? 'Keep the file somewhere other than this server.' : 'Keep the file somewhere other than this iPhone, such as iCloud Drive or a computer.'}</div>}
       <button
         className="btn primary"
         disabled={!ready || busy}
@@ -147,10 +150,10 @@ export function RestoreBackup({ onRestored }: { onRestored?: (s: RestoreSummary)
           Restored.
           {summary.settings ? ' Settings and your node’s address are back.' : ''}
           {summary.contacts ? ` ${summary.contacts} contact${summary.contacts === 1 ? '' : 's'} added.` : ''}
-          {summary.labels ? ` ${summary.labels} label${summary.labels === 1 ? '' : 's'} added to wallets on this phone.` : ''}
+          {summary.labels ? ` ${summary.labels} label${summary.labels === 1 ? '' : 's'} added to wallets on this ${isServer ? 'server' : 'phone'}.` : ''}
           {summary.waiting.length ? ` Waiting for seed words: ${summary.waiting.join(', ')}.` : ''}
           {summary.kruxWaiting.length ? ` Signed on a Krux, back once you scan its key: ${summary.kruxWaiting.join(', ')}.` : ''}
-          {!summary.settings && !summary.contacts && !summary.labels && !summary.waiting.length && !summary.kruxWaiting.length ? ' Everything in it was already on this phone.' : ''}
+          {!summary.settings && !summary.contacts && !summary.labels && !summary.waiting.length && !summary.kruxWaiting.length ? ` Everything in it was already on this ${isServer ? 'server' : 'phone'}.` : ''}
         </div>
         {summary.kruxWaiting.length > 0 && !onRestored && (
           <button className="btn secondary" style={{ marginBottom: 10 }} onClick={() => nav.push({ name: 'add-wallet', krux: true })}>

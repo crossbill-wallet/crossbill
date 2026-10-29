@@ -1,5 +1,16 @@
 # Changes
 
+## Unreleased
+
+New:
+
+- **A QR scanner in Crossbill on StartOS.** Wherever the iPhone app opens the camera (a Krux's key and its signed codes, a Lightning Fork pairing code, an invoice, an address), the browser version now opens the camera of the device it's on, phone or computer. The camera works on a secure address: the `https://` one StartOS gives, or an onion in Tor Browser. The scanner also opens a picture of a code, for a code on the same screen (take a screenshot), and takes a code's text pasted in. The iPhone app is unchanged.
+
+Fixed:
+
+- Crossbill on StartOS said "this iPhone" and "this phone" where it means the server: adding a Krux, Lightning pairing and unpairing, backups, contacts, removing a wallet and the price's connection notes. Its Lightning payments and two-factor screens no longer mention Face ID, and two-factor says what it guards on the server: the page checks the code, so the password is what keeps others out.
+- On StartOS, a transaction link to an onion block explorer opens as an onion address, for Tor Browser, instead of an Onion Browser link.
+
 ## 0.5.0
 
 New:

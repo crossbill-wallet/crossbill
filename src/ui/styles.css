@@ -2259,3 +2259,155 @@ svg.step-mark.failed path {
   border: 1px solid var(--rule);
   border-radius: 12px;
 }
+
+/* The StartOS build's QR scanner (src/app/server-scanner.ts): the camera full screen, as on the iPhone, with a
+   picture and pasting below it. The camera area stays black and white whatever the theme or skin. */
+.scanner {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  background: #000000;
+  color: #ffffff;
+  animation: fade 0.18s ease-out;
+}
+
+.scanner-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: calc(var(--safe-top) + 8px) 12px 8px;
+}
+
+.scanner-top button {
+  background: none;
+  border: 0;
+  color: #ffffff;
+  font-size: var(--t-md);
+  min-height: 44px;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.scanner-cancel {
+  justify-self: start;
+}
+
+.scanner-switch {
+  justify-self: end;
+  font-size: var(--t-sm) !important;
+}
+
+.scanner-heading {
+  text-align: center;
+  min-width: 0;
+}
+
+.scanner-heading h2 {
+  font-size: var(--t-md);
+  margin: 0;
+}
+
+.scanner-progress {
+  margin: 2px 0 0;
+  font-size: var(--t-sm);
+  color: #c9d1d6;
+}
+
+.scanner-view {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scanner-view video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.scanner-view video.mirrored {
+  transform: scaleX(-1);
+}
+
+.scanner-frame {
+  position: relative;
+  width: min(70vmin, 360px);
+  aspect-ratio: 1;
+  border: 3px solid #ffffffd9;
+  border-radius: 18px;
+  box-shadow: 0 0 0 100vmax #00000059;
+  pointer-events: none;
+}
+
+.scanner-camera-note {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(88%, 420px);
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #000000cc;
+  font-size: var(--t-sm);
+  line-height: 1.4;
+  text-align: center;
+}
+
+.scanner-bottom {
+  background: var(--ash);
+  color: var(--ink);
+  border-radius: 18px 18px 0 0;
+  padding: 14px var(--pad) calc(var(--safe-bottom) + 16px);
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.scanner-status {
+  margin: 0 0 10px;
+  font-size: var(--t-sm);
+  color: var(--slate);
+}
+
+.scanner-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.scanner-buttons .btn {
+  width: 100%;
+  font-size: var(--t-sm);
+}
+
+.scanner-hint {
+  margin: 10px 0 0;
+  font-size: var(--t-xs);
+  color: var(--slate);
+  line-height: 1.4;
+}
+
+.scanner-paste textarea {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+@media (max-width: 380px) {
+  .scanner-buttons {
+    grid-template-columns: 1fr;
+  }
+}
+
+.scanner [hidden] {
+  display: none !important;
+}
