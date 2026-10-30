@@ -6,7 +6,7 @@ An iPhone wallet for Bitcoin (XBT) on the BLAKE2b chain: the chain that changed 
 
 It works alongside [Shrike](https://shrikewallet.com/), the desktop wallet that parts of it are ported from: a wallet you already use in Shrike on your computer opens here with no rescan.
 
-Crossbill was called Shrike for iPhone before version 0.4.0. It is independent: not affiliated with or endorsed by the Shrike, Sparrow, Bitcoin Knots or Lightning Fork projects, Paperclip or Connor's Lab.
+Crossbill was called Shrike for iPhone before version 0.4.0. It is independent: not affiliated with or endorsed by Start9, the Shrike, Sparrow, Bitcoin Knots or Lightning Fork projects, Paperclip or Connor's Lab.
 
 Not audited. Use at your own risk, under the Apache 2.0 terms (see [LICENSE](LICENSE) and [NOTICE](NOTICE)). Start with a small amount.
 
@@ -151,7 +151,7 @@ Actions are pinned to full commits. The workflows use only `GITHUB_TOKEN`; no se
 
 ## Crossbill on StartOS
 
-The same screens, served from your own StartOS server to a browser: watch-only, signed on a Krux, with the node's password kept on the server and Lightning payments off until you turn them on. It isn't packaged for StartOS yet. [docs/server.md](docs/server.md) explains how it differs from the iPhone app and how to try it from a Mac against your own node. `npm run build:server` builds its screens into `dist-server`, and `npm run server` starts it.
+The same screens, served from your own StartOS server to a browser: watch-only, signed on a Krux, with the node's password kept on the server and Lightning payments off until you turn them on. It's packaged for StartOS as [crossbill-startos](https://github.com/crossbill-wallet/crossbill-startos), installed from the registry at `https://start9.crossbillwallet.com`. [docs/server.md](docs/server.md) explains how it differs from the iPhone app and how to try it from a Mac against your own node. `npm run build:server` builds its screens into `dist-server`, and `npm run server` starts it.
 
 ## What's next
 
