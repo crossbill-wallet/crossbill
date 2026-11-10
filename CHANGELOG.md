@@ -1,6 +1,6 @@
 # Changes
 
-## Unreleased
+## 0.5.1
 
 New:
 
@@ -8,6 +8,7 @@ New:
 
 Fixed:
 
+- **Coinbase rewards mature on the node's schedule.** A reward mined at block 979919 or later, such as a mining payout to a Crossbill address, needs 25920 confirmations (about 180 days) before it can be spent, as Knots 29.4.3 and later enforce it. The app had used 6480 for every reward, so these showed as spendable about 135 days early, and the node refused to send them. Rewards from earlier blocks are unchanged at 6480. After RDTS expires in September 2027 the rule for newly mined rewards changes again, and the app will need an update before then.
 - Crossbill on StartOS said "this iPhone" and "this phone" where it means the server: adding a Krux, Lightning pairing and unpairing, backups, contacts, removing a wallet and the price's connection notes. Its Lightning payments and two-factor screens no longer mention Face ID, and two-factor says what it guards on the server: the page checks the code, so the password is what keeps others out.
 - On StartOS, a transaction link to an onion block explorer opens as an onion address, for Tor Browser, instead of an Onion Browser link.
 

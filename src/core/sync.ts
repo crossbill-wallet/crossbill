@@ -11,7 +11,7 @@
 import { fromHex, toHex } from './bytes';
 import { normalizeDescriptor } from './descriptor';
 import { AccountKey } from './keys';
-import { networkFromRpcChain, type NetworkName, type NetworkParams } from './network';
+import { isCoinbaseImmature, networkFromRpcChain, type NetworkName, type NetworkParams } from './network';
 import { chainDecision, parseHeader, type HeaderSummary, type ReplayDecision } from './replay';
 import { KnotsRpc, RpcError, RPC_CODES } from './rpc';
 import { decodeAddress, outputScript, tryEncodeAddress, type ScriptType } from './script';
@@ -578,7 +578,7 @@ export function computeSnapshot(store: SyncStore, index: AddressIndex, net: Netw
     });
     for (const o of outputs) {
       if (!o.mine || o.spentBy) continue;
-      const immature = coinbase && confirmations < net.coinbaseMaturity;
+      const immature = coinbase && isCoinbaseImmature(net, meta.blockheight ?? null, confirmations);
       utxos.push({
         txid: t,
         vout: o.vout,
