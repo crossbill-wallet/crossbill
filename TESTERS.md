@@ -7,7 +7,7 @@ Thanks for trying it. Crossbill is an iPhone wallet for Bitcoin (XBT), the BLAKE
 ## What you need
 
 - An iPhone with iOS 16 or later.
-- Your own Bitcoin Knots node that follows the BLAKE2b chain, with its RPC address, user and password. [GETTING-STARTED.md](GETTING-STARTED.md#step-5-connect-your-node) shows where to find them on StartOS and other nodes.
+- Your own Bitcoin Knots node that follows the BLAKE2b chain, with its RPC address, user and password. That means Bitcoin Knots 29.4.1 or later: the pre-RDTS Knots flavor and Bitcoin Core follow the SHA256 chain. On StartOS the Bitcoin service offers these as flavors, and a service that depends on Bitcoin can't choose one. On the other chain Crossbill still connects, shows **Not replay protected**, and refuses sends to a Krux. [GETTING-STARTED.md](GETTING-STARTED.md#step-5-connect-your-node) shows where to find the RPC details on StartOS and other nodes.
 - A computer for the sideloading tool (Mac or Windows).
 
 ## Get a test build
