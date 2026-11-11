@@ -11,7 +11,7 @@ Plan on about an hour the first time, most of it waiting for downloads.
 - **A Mac** with enough free space for Xcode (it's a large download).
 - **An iPhone** with a passcode and Face ID or Touch ID, and a cable to connect it to the Mac.
 - **An Apple ID.** A free one works, but the app stops opening after 7 days until you install it again from the Mac (see [Keeping it running](#keeping-it-running)). A paid Apple Developer account, 99 USD a year, makes that a year.
-- **A Bitcoin Knots node that follows the BLAKE2b chain,** reachable over Tor, with an RPC user and password. Step 5 shows how on StartOS.
+- **A Bitcoin Knots node that follows the BLAKE2b chain,** reachable over Tor, with an RPC user and password. That means Bitcoin Knots 29.4.1 or later. The pre-RDTS Knots flavor and Bitcoin Core follow the SHA256 chain instead. Step 5 shows how on StartOS.
 - **Seed words** for a wallet you already use in Shrike, or nothing, and the app makes a new wallet.
 
 ## Step 1: Install Xcode
@@ -73,6 +73,12 @@ Copying the password from the Mac to the iPhone works with Universal Clipboard w
 Add an `rpcauth` line to `bitcoin.conf` (the `rpcauth.py` script that comes with Bitcoin Core and Knots makes one) and publish the RPC port as a Tor onion service, for example with `HiddenServicePort 8332 127.0.0.1:8332` in `torrc`. In the app, enter the onion address, port 8332, and leave **Use HTTPS** off.
 
 The node must be Bitcoin Knots following the BLAKE2b fork, with its wallet feature turned on. The app keeps watch-only copies of your wallets in a node wallet called `cormorant`, the same one desktop Shrike uses.
+
+### Which chain your node follows
+
+Bitcoin Knots 29.4.1 or later follows the BLAKE2b chain. The pre-RDTS Knots flavor and Bitcoin Core follow the SHA256 chain. On StartOS the Bitcoin service offers these as flavors, and a service that depends on Bitcoin can't choose one, so check which flavor you installed.
+
+Crossbill doesn't refuse a node on the other chain. It connects, and shows **Not replay protected** with the reason, such as that the node's tip isn't a fork header. A send signed on the phone is then not protected either: its signature is valid on both chains. A wallet that signs on a Krux can't send at all. Crossbill stops with "Your Krux only signs replay-protected transactions", since that is all Paperclip's firmware signs.
 
 ## Step 6: Add a wallet
 

@@ -43,6 +43,7 @@ What it doesn't do (yet): other hardware wallets, multisig, PSBTs from other app
 - A Mac with Xcode installed (the full Xcode from the App Store, not only the command line tools).
 - Homebrew, then Node.js and CocoaPods: `brew install node cocoapods`
 - Your iPhone, a USB cable, and your Apple ID. A free Apple ID works, but the app stops opening after 7 days until you run it from Xcode again. A paid developer account ($99 a year) makes that a year.
+- A Bitcoin Knots node that follows the BLAKE2b chain: Bitcoin Knots 29.4.1 or later. The pre-RDTS Knots flavor and Bitcoin Core follow the SHA256 chain instead. On StartOS the Bitcoin service offers these as flavors, and a service that depends on Bitcoin can't choose one. On the other chain Crossbill still connects and shows **Not replay protected**, and it refuses sends to a Krux.
 - Your node's RPC details: the RPC onion address, port, user and password. The node needs `rpcauth` (or `rpcuser`/`rpcpassword`) in `bitcoin.conf`; a cookie file can't be read from a phone. On StartOS 0.4, the address is under Bitcoin Knots, Interfaces, RPC, in the Tor section (an `https://` onion address on port 443), and the user comes from the **Generate RPC User Credentials** action. On Umbrel and similar, it's with the Bitcoin Knots app's connection details.
 
 ## Build and install
